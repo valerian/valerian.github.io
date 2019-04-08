@@ -1,0 +1,69 @@
+[skill_employment_1]
+category = "employment"
+name = "Social skills"
+description = "Why do all the work when I can have someone to do it for me?"
+requiredCharisma = 1
+requiredKnowledge = 1
+requiredConstitution = 1
+
+isAbleToHire = true
+
+
+[skill_employment_2]
+category = "employment"
+name = "Management"
+description = "We can't do good work if we are not organized"
+requires = [ "skill_employment_1" ]
+requiredCharisma = 2
+requiredKnowledge = 2
+requiredConstitution = 2
+
+employeeWorkFactor = 2
+
+
+[skill_employment_3]
+category = "employment"
+name = "Leadership"
+description = "Follow the leader!"
+requires = [ "skill_employment_2" ]
+requiredCharisma = 3
+requiredKnowledge = 3
+requiredConstitution = 3
+
+employeeWorkFactor = 2
+
+
+[skill_employment_4]
+category = "employment"
+name = "Authority"
+description = "Work or leave"
+requires = [ "skill_employment_3" ]
+requiredCharisma = 4
+requiredKnowledge = 4
+requiredConstitution = 4
+
+employeeWorkFactor = 2
+
+
+[skill_employment_5]
+category = "employment"
+name = "Inspiration"
+description = "Act as one"
+requires = [ "skill_employment_4" ]
+requiredCharisma = 5
+requiredKnowledge = 5
+requiredConstitution = 5
+
+employeeWorkFactor = 2
+
+
+[skill_employment_6]
+category = "employment"
+name = "Domination"
+description = "I own you"
+requires = [ "skill_employment_5" ]
+requiredCharisma = 6
+requiredKnowledge = 6
+requiredConstitution = 6
+
+employeeWorkFactor = 2

@@ -1,0 +1,72 @@
+[skill_social_1]
+category = "social"
+name = "Phone calls"
+description = "Hiding behind emails and chats can only get you so far"
+requiredCharisma = 1
+
+taskSizeFactor = 2.5
+taskRewardFactor = 2
+
+
+[skill_social_2]
+category = "social"
+name = "Empathy"
+description = "You understand better how the clients think and what they really want"
+requires = [ "skill_social_1" ]
+requiredCharisma = 2
+requiredIntelligence = 1
+
+taskSizeFactor = 2.5
+taskRewardFactor = 2
+
+
+[skill_social_3]
+category = "social"
+name = "Meeting"
+description = "Meet the clients in person"
+requires = [ "skill_social_2" ]
+requiredCharisma = 3
+requiredIntelligence = 1
+requiredDexterity = 1
+
+taskSizeFactor = 2.5
+taskRewardFactor = 2
+
+
+[skill_social_4]
+category = "social"
+name = "Persuasion"
+description = "Trick the clients to accept your terms"
+requires = [ "skill_social_3" ]
+requiredCharisma = 4
+requiredIntelligence = 2
+requiredDexterity = 1
+
+taskSizeFactor = 2.5
+taskRewardFactor = 2
+
+
+[skill_social_5]
+category = "social"
+name = "Body language"
+description = "Master your own body language and almost read the client's mind"
+requires = [ "skill_social_4" ]
+requiredCharisma = 5
+requiredIntelligence = 2
+requiredDexterity = 2
+
+taskSizeFactor = 2.5
+taskRewardFactor = 2
+
+
+[skill_social_6]
+category = "social"
+name = "Hypnosis"
+description = "Manipulate the client's thoughts"
+requires = [ "skill_social_5" ]
+requiredCharisma = 6
+requiredIntelligence = 3
+requiredDexterity = 2
+
+taskSizeFactor = 2.5
+taskRewardFactor = 2

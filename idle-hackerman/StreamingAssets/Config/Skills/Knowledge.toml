@@ -1,0 +1,81 @@
+[skill_language_0]
+category = "language"
+name = "Shell script"
+description = "The most easily available programming language on a UNIX terminal"
+
+isAlreadyAcquired = true
+
+
+[skill_language_1]
+category = "language"
+name = "PHP"
+description = "Easy to learn, easy to mess up"
+requires = [ "skill_language_0" ]
+requiredKnowledge = 1
+
+taskSizeFactor = 2.5
+taskRewardFactor = 2
+
+
+[skill_language_2]
+category = "language"
+name = "Python"
+description = "Clean and elegant"
+requires = [ "skill_language_1" ]
+requiredKnowledge = 2
+requiredIntelligence = 1
+
+taskSizeFactor = 2.5
+taskRewardFactor = 2
+
+
+[skill_language_3]
+category = "language"
+name = "Lisp"
+description = "Powerful for people who know what they are doing"
+requires = [ "skill_language_2" ]
+requiredKnowledge = 3
+requiredIntelligence = 1
+requiredConstitution = 1
+
+taskSizeFactor = 2.5
+taskRewardFactor = 2
+
+
+[skill_language_4]
+category = "language"
+name = "Haskell"
+description = "Will change the way you think about programming"
+requires = [ "skill_language_3" ]
+requiredKnowledge = 4
+requiredIntelligence = 2
+requiredConstitution = 1
+
+taskSizeFactor = 2.5
+taskRewardFactor = 2
+
+
+[skill_language_5]
+category = "language"
+name = "Assembly"
+description = "Close to the CPU's own language"
+requires = [ "skill_language_4" ]
+requiredKnowledge = 5
+requiredIntelligence = 2
+requiredConstitution = 2
+
+taskSizeFactor = 2.5
+taskRewardFactor = 2
+
+
+[skill_language_6]
+category = "language"
+name = "Binary"
+description = "No more compiler to restrict you, code directly with ones and zeros"
+requires = [ "skill_language_5" ]
+requiredKnowledge = 6
+requiredIntelligence = 3
+requiredConstitution = 2
+
+taskSizeFactor = 2.5
+taskRewardFactor = 2

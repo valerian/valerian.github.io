@@ -1,0 +1,1903 @@
+static inline void *
+find_pa(unsigned long *vptb, void *ptr)
+{
+  unsigned long address = (unsigned long) ptr;
+  unsigned long result;
+
+  result = vptb[address >> 13];
+  result >>= 32;
+  result <<= 13;
+  result |= address & 0x1fff;
+  return (void *) result;
+}
+
+
+
+#define VPTB  ((unsigned long *) 0x200000000)
+#define L1  ((unsigned long *) 0x200802000)
+
+void
+pal_init(void)
+{
+  unsigned long i, rev;
+  struct percpu_struct * percpu;
+  struct pcb_struct * pcb_pa;
+
+  
+  pcb_va->ksp = 0;
+  pcb_va->usp = 0;
+  pcb_va->ptbr = L1[1] >> 32;
+  pcb_va->asn = 0;
+  pcb_va->pcc = 0;
+  pcb_va->unique = 0;
+  pcb_va->flags = 1;
+  pcb_va->res1 = 0;
+  pcb_va->res2 = 0;
+  pcb_pa = find_pa(VPTB, pcb_va);
+
+  
+  srm_printk("Switching to OSF PAL-code .. ");
+
+  i = switch_to_osf_pal(2, pcb_va, pcb_pa, VPTB);
+  if (i) {
+    srm_printk("failed, code %ld\n", i);
+    __halt();
+  }
+
+  percpu = (struct percpu_struct *)
+    (INIT_HWRPB->processor_offset + (unsigned long) INIT_HWRPB);
+  rev = percpu->pal_revision = percpu->palcode_avail[2];
+
+  srm_printk("Ok (rev %lx)\n", rev);
+
+  tbia(); 
+}
+
+static inline void
+load(unsigned long dst, unsigned long src, unsigned long count)
+{
+  memcpy((void *)dst, (void *)src, count);
+}
+
+
+static inline void
+runkernel(void)
+{
+  __asm__ __volatile__(
+    "bis %0,%0,$27\n\t"
+    "jmp ($27)"
+    : 
+    : "r" (START_ADDR));
+}
+
+extern char _end;
+#define KERNEL_ORIGIN \
+  ((((unsigned long)&_end) + 511) & ~511)
+
+void
+start_kernel(void)
+{
+  
+  static long nbytes;
+  static char envval[256] __attribute__((aligned(8)));
+  static unsigned long initrd_start;
+
+  srm_printk("Linux/AXP bootp loader for Linux " UTS_RELEASE "\n");
+  if (INIT_HWRPB->pagesize != 8192) {
+    srm_printk("Expected 8kB pages, got %ldkB\n",
+               INIT_HWRPB->pagesize >> 10);
+    return;
+  }
+  if (INIT_HWRPB->vptb != (unsigned long) VPTB) {
+    srm_printk("Expected vptb at %p, got %p\n",
+         VPTB, (void *)INIT_HWRPB->vptb);
+    return;
+  }
+  pal_init();
+
+  
+  initrd_start = ((START_ADDR + 5*KERNEL_SIZE + PAGE_SIZE) |
+      (PAGE_SIZE-1)) + 1;
+#ifdef INITRD_IMAGE_SIZE
+  srm_printk("Initrd positioned at %#lx\n", initrd_start);
+#endif
+
+  
+  move_stack(initrd_start - PAGE_SIZE);
+
+  nbytes = callback_getenv(ENV_BOOTED_OSFLAGS, envval, sizeof(envval));
+  if (nbytes < 0 || nbytes >= sizeof(envval)) {
+    nbytes = 0;
+  }
+  envval[nbytes] = '\0';
+  srm_printk("Loading the kernel...'%s'\n", envval);
+
+  
+
+  
+
+#ifdef INITRD_IMAGE_SIZE
+  load(initrd_start, KERNEL_ORIGIN+KERNEL_SIZE, INITRD_IMAGE_SIZE);
+#endif
+        load(START_ADDR+(4*KERNEL_SIZE), KERNEL_ORIGIN, KERNEL_SIZE);
+        load(START_ADDR, START_ADDR+(4*KERNEL_SIZE), KERNEL_SIZE);
+
+  memset((char*)ZERO_PGE, 0, PAGE_SIZE);
+  strcpy((char*)ZERO_PGE, envval);
+#ifdef INITRD_IMAGE_SIZE
+  ((long *)(ZERO_PGE+256))[0] = initrd_start;
+  ((long *)(ZERO_PGE+256))[1] = INITRD_IMAGE_SIZE;
+#endif
+
+  runkernel();
+}
+// SPDX-License-Identifier: GPL-2.0
+
+
+
+#define MALLOC_AREA_SIZE 0x200000 
+
+
+
+
+
+#undef DEBUG_CHECK_RANGE
+#undef DEBUG_ADDRESSES
+#undef DEBUG_LAST_STEPS
+
+extern unsigned long switch_to_osf_pal(unsigned long nr,
+  struct pcb_struct * pcb_va, struct pcb_struct * pcb_pa,
+  unsigned long *vptb);
+
+extern int decompress_kernel(void* destination, void *source,
+           size_t ksize, size_t kzsize);
+
+extern void move_stack(unsigned long new_stack);
+
+struct hwrpb_struct *hwrpb = INIT_HWRPB;
+static struct pcb_struct pcb_va[1];
+
+
+#define VPTB  ((unsigned long *) 0x200000000)
+
+static inline unsigned long
+find_pa(unsigned long address)
+{
+  unsigned long result;
+
+  result = VPTB[address >> 13];
+  result >>= 32;
+  result <<= 13;
+  result |= address & 0x1fff;
+  return result;
+}
+
+int
+check_range(unsigned long vstart, unsigned long vend,
+      unsigned long kstart, unsigned long kend)
+{
+  unsigned long vaddr, kaddr;
+
+#ifdef DEBUG_CHECK_RANGE
+  srm_printk("check_range: V[0x%lx:0x%lx] K[0x%lx:0x%lx]\n",
+       vstart, vend, kstart, kend);
+#endif
+  
+  for (vaddr = vstart; vaddr <= vend; vaddr += PAGE_SIZE)
+  {
+    kaddr = (find_pa(vaddr) | PAGE_OFFSET);
+    if (kaddr >= kstart && kaddr <= kend)
+    {
+#ifdef DEBUG_CHECK_RANGE
+      srm_printk("OVERLAP: vaddr 0x%lx kaddr 0x%lx"
+           " [0x%lx:0x%lx]\n",
+           vaddr, kaddr, kstart, kend);
+#endif
+      return 1;
+    }
+  }
+  return 0;
+}
+
+
+
+#define L1  ((unsigned long *) 0x200802000)
+
+void
+pal_init(void)
+{
+  unsigned long i, rev;
+  struct percpu_struct * percpu;
+  struct pcb_struct * pcb_pa;
+
+  
+  pcb_va->ksp = 0;
+  pcb_va->usp = 0;
+  pcb_va->ptbr = L1[1] >> 32;
+  pcb_va->asn = 0;
+  pcb_va->pcc = 0;
+  pcb_va->unique = 0;
+  pcb_va->flags = 1;
+  pcb_va->res1 = 0;
+  pcb_va->res2 = 0;
+  pcb_pa = (struct pcb_struct *)find_pa((unsigned long)pcb_va);
+
+  
+  srm_printk("Switching to OSF PAL-code... ");
+
+  i = switch_to_osf_pal(2, pcb_va, pcb_pa, VPTB);
+  if (i) {
+    srm_printk("failed, code %ld\n", i);
+    __halt();
+  }
+
+  percpu = (struct percpu_struct *)
+    (INIT_HWRPB->processor_offset + (unsigned long) INIT_HWRPB);
+  rev = percpu->pal_revision = percpu->palcode_avail[2];
+
+  srm_printk("OK (rev %lx)\n", rev);
+
+  tbia(); 
+}
+
+
+static inline void
+runkernel(void)
+{
+  __asm__ __volatile__(
+    "bis %0,%0,$27\n\t"
+    "jmp ($27)"
+    : 
+    : "r" (START_ADDR));
+}
+
+
+unsigned long SP_on_entry;
+
+
+extern char _end;
+#define KERNEL_ORIGIN \
+  ((((unsigned long)&_end) + 511) & ~511)
+
+
+#define NEXT_PAGE(a)  (((a) | (PAGE_SIZE - 1)) + 1)
+
+#ifdef INITRD_IMAGE_SIZE
+# define REAL_INITRD_SIZE INITRD_IMAGE_SIZE
+#else
+# define REAL_INITRD_SIZE 0
+#endif
+
+
+
+
+
+#define V_BOOT_IMAGE_START  BOOT_ADDR
+#define V_BOOT_IMAGE_END  SP_on_entry
+
+
+#define V_BOOTSTRAPPER_START  BOOT_ADDR
+#define V_BOOTSTRAPPER_END  KERNEL_ORIGIN
+
+
+#define V_DATA_START    KERNEL_ORIGIN
+#define V_INITRD_START    (KERNEL_ORIGIN + KERNEL_Z_SIZE)
+#define V_INTRD_END    (V_INITRD_START + REAL_INITRD_SIZE)
+#define V_DATA_END     V_BOOT_IMAGE_END
+
+
+#define K_KERNEL_DATA_START  ZERO_PGE
+#define K_KERNEL_IMAGE_START  START_ADDR
+#define K_KERNEL_IMAGE_END  (START_ADDR + KERNEL_SIZE)
+
+
+#define K_COPY_IMAGE_START  NEXT_PAGE(K_KERNEL_IMAGE_END)
+
+#define K_INITRD_START \
+    NEXT_PAGE(K_COPY_IMAGE_START + KERNEL_SIZE + PAGE_SIZE)
+#define K_COPY_IMAGE_END \
+    (K_INITRD_START + REAL_INITRD_SIZE + MALLOC_AREA_SIZE)
+#define K_COPY_IMAGE_SIZE \
+    NEXT_PAGE(K_COPY_IMAGE_END - K_COPY_IMAGE_START)
+
+void
+start_kernel(void)
+{
+  int must_move = 0;
+
+  
+  unsigned long uncompressed_image_start = K_KERNEL_IMAGE_START;
+  unsigned long uncompressed_image_end = K_KERNEL_IMAGE_END;
+
+  unsigned long initrd_image_start = K_INITRD_START;
+
+  
+  static long nbytes;
+  static char envval[256] __attribute__((aligned(8)));
+  register unsigned long asm_sp asm("30");
+
+  SP_on_entry = asm_sp;
+
+  srm_printk("Linux/Alpha BOOTPZ Loader for Linux " UTS_RELEASE "\n");
+
+  
+  if (INIT_HWRPB->pagesize != 8192) {
+    srm_printk("Expected 8kB pages, got %ldkB\n",
+               INIT_HWRPB->pagesize >> 10);
+    return;
+  }
+  if (INIT_HWRPB->vptb != (unsigned long) VPTB) {
+    srm_printk("Expected vptb at %p, got %p\n",
+         VPTB, (void *)INIT_HWRPB->vptb);
+    return;
+  }
+
+  
+  pal_init();
+
+  
+  nbytes = callback_getenv(ENV_BOOTED_OSFLAGS, envval, sizeof(envval));
+  if (nbytes < 0 || nbytes >= sizeof(envval)) {
+    nbytes = 0;
+  }
+  envval[nbytes] = '\0';
+
+#ifdef DEBUG_ADDRESSES
+  srm_printk("START_ADDR 0x%lx\n", START_ADDR);
+  srm_printk("KERNEL_ORIGIN 0x%lx\n", KERNEL_ORIGIN);
+  srm_printk("KERNEL_SIZE 0x%x\n", KERNEL_SIZE);
+  srm_printk("KERNEL_Z_SIZE 0x%x\n", KERNEL_Z_SIZE);
+#endif
+
+  
+
+  
+  if (check_range(V_BOOTSTRAPPER_START, V_BOOTSTRAPPER_END,
+      K_KERNEL_DATA_START, K_KERNEL_IMAGE_END))
+  {
+    srm_printk("FATAL ERROR: overlap of bootstrapper code\n");
+    __halt();
+  }
+
+  
+  if (check_range(V_DATA_START, V_DATA_END,
+      K_KERNEL_IMAGE_START, K_COPY_IMAGE_END))
+  {
+#ifdef DEBUG_ADDRESSES
+    srm_printk("OVERLAP: cannot decompress in place\n");
+#endif
+    uncompressed_image_start = K_COPY_IMAGE_START;
+    uncompressed_image_end = K_COPY_IMAGE_END;
+    must_move = 1;
+
+    
+    while (check_range(V_DATA_START, V_DATA_END,
+           uncompressed_image_start,
+           uncompressed_image_end))
+    {
+#if 0
+      uncompressed_image_start += K_COPY_IMAGE_SIZE;
+      uncompressed_image_end += K_COPY_IMAGE_SIZE;
+      initrd_image_start += K_COPY_IMAGE_SIZE;
+#else
+      
+      uncompressed_image_start += PAGE_SIZE;
+      uncompressed_image_end += PAGE_SIZE;
+      initrd_image_start += PAGE_SIZE;
+#endif
+    }
+  }
+
+  srm_printk("Starting to load the kernel with args '%s'\n", envval);
+
+#ifdef DEBUG_ADDRESSES
+  srm_printk("Decompressing the kernel...\n"
+       "...from 0x%lx to 0x%lx size 0x%x\n",
+       V_DATA_START,
+       uncompressed_image_start,
+       KERNEL_SIZE);
+#endif
+        decompress_kernel((void *)uncompressed_image_start,
+        (void *)V_DATA_START,
+        KERNEL_SIZE, KERNEL_Z_SIZE);
+
+  
+
+#ifdef INITRD_IMAGE_SIZE
+
+  
+#ifdef DEBUG_ADDRESSES
+  srm_printk("Moving the INITRD image...\n"
+       " from 0x%lx to 0x%lx size 0x%x\n",
+       V_INITRD_START,
+       initrd_image_start,
+       INITRD_IMAGE_SIZE);
+#endif
+  memcpy((void *)initrd_image_start, (void *)V_INITRD_START,
+         INITRD_IMAGE_SIZE);
+
+#endif 
+
+  
+  if (must_move) {
+#ifdef DEBUG_ADDRESSES
+    srm_printk("Moving the uncompressed kernel...\n"
+         "...from 0x%lx to 0x%lx size 0x%x\n",
+         uncompressed_image_start,
+         K_KERNEL_IMAGE_START,
+         (unsigned)KERNEL_SIZE);
+#endif
+    
+    move_stack(initrd_image_start - PAGE_SIZE);
+
+    memcpy((void *)K_KERNEL_IMAGE_START,
+           (void *)uncompressed_image_start, KERNEL_SIZE);
+  }
+
+  
+#ifdef DEBUG_LAST_STEPS
+  srm_printk("Preparing ZERO_PGE...\n");
+#endif
+  memset((char*)ZERO_PGE, 0, PAGE_SIZE);
+  strcpy((char*)ZERO_PGE, envval);
+
+#ifdef INITRD_IMAGE_SIZE
+
+#ifdef DEBUG_LAST_STEPS
+  srm_printk("Preparing INITRD info...\n");
+#endif
+  
+  ((long *)(ZERO_PGE+256))[0] = initrd_image_start;
+  ((long *)(ZERO_PGE+256))[1] = INITRD_IMAGE_SIZE;
+
+#endif 
+
+#ifdef DEBUG_LAST_STEPS
+  srm_printk("Doing 'runkernel()'...\n");
+#endif
+  runkernel();
+}
+
+ 
+void *__kmalloc(size_t size, gfp_t flags)
+{
+  return (void *)NULL;
+}
+// SPDX-License-Identifier: GPL-2.0
+
+
+extern unsigned long switch_to_osf_pal(unsigned long nr,
+  struct pcb_struct * pcb_va, struct pcb_struct * pcb_pa,
+  unsigned long *vptb);
+struct hwrpb_struct *hwrpb = INIT_HWRPB;
+static struct pcb_struct pcb_va[1];
+
+
+
+static inline void *
+find_pa(unsigned long *vptb, void *ptr)
+{
+  unsigned long address = (unsigned long) ptr;
+  unsigned long result;
+
+  result = vptb[address >> 13];
+  result >>= 32;
+  result <<= 13;
+  result |= address & 0x1fff;
+  return (void *) result;
+}
+
+
+
+#define VPTB  ((unsigned long *) 0x200000000)
+#define L1  ((unsigned long *) 0x200802000)
+
+void
+pal_init(void)
+{
+  unsigned long i, rev;
+  struct percpu_struct * percpu;
+  struct pcb_struct * pcb_pa;
+
+  
+  pcb_va->ksp = 0;
+  pcb_va->usp = 0;
+  pcb_va->ptbr = L1[1] >> 32;
+  pcb_va->asn = 0;
+  pcb_va->pcc = 0;
+  pcb_va->unique = 0;
+  pcb_va->flags = 1;
+  pcb_va->res1 = 0;
+  pcb_va->res2 = 0;
+  pcb_pa = find_pa(VPTB, pcb_va);
+
+  
+  srm_printk("Switching to OSF PAL-code .. ");
+
+  i = switch_to_osf_pal(2, pcb_va, pcb_pa, VPTB);
+  if (i) {
+    srm_printk("failed, code %ld\n", i);
+    __halt();
+  }
+
+  percpu = (struct percpu_struct *)
+    (INIT_HWRPB->processor_offset + (unsigned long) INIT_HWRPB);
+  rev = percpu->pal_revision = percpu->palcode_avail[2];
+
+  srm_printk("Ok (rev %lx)\n", rev);
+
+  tbia(); 
+}
+
+static inline long openboot(void)
+{
+  char bootdev[256];
+  long result;
+
+  result = callback_getenv(ENV_BOOTED_DEV, bootdev, 255);
+  if (result < 0)
+    return result;
+  return callback_open(bootdev, result & 255);
+}
+
+static inline long close(long dev)
+{
+  return callback_close(dev);
+}
+
+static inline long load(long dev, unsigned long addr, unsigned long count)
+{
+  char bootfile[256];
+  extern char _end;
+  long result, boot_size = &_end - (char *) BOOT_ADDR;
+
+  result = callback_getenv(ENV_BOOTED_FILE, bootfile, 255);
+  if (result < 0)
+    return result;
+  result &= 255;
+  bootfile[result] = '\0';
+  if (result)
+    srm_printk("Boot file specification (%s) not implemented\n",
+           bootfile);
+  return callback_read(dev, count, (void *)addr, boot_size/512 + 1);
+}
+
+
+static void runkernel(void)
+{
+  __asm__ __volatile__(
+    "bis %1,%1,$30\n\t"
+    "bis %0,%0,$26\n\t"
+    "ret ($26)"
+    : 
+    : "r" (START_ADDR),
+      "r" (PAGE_SIZE + INIT_STACK));
+}
+
+void start_kernel(void)
+{
+  long i;
+  long dev;
+  int nbytes;
+  char envval[256];
+
+  srm_printk("Linux/AXP bootloader for Linux " UTS_RELEASE "\n");
+  if (INIT_HWRPB->pagesize != 8192) {
+    srm_printk("Expected 8kB pages, got %ldkB\n", INIT_HWRPB->pagesize >> 10);
+    return;
+  }
+  pal_init();
+  dev = openboot();
+  if (dev < 0) {
+    srm_printk("Unable to open boot device: %016lx\n", dev);
+    return;
+  }
+  dev &= 0xffffffff;
+  srm_printk("Loading vmlinux ...");
+  i = load(dev, START_ADDR, KERNEL_SIZE);
+  close(dev);
+  if (i != KERNEL_SIZE) {
+    srm_printk("Failed (%lx)\n", i);
+    return;
+  }
+
+  nbytes = callback_getenv(ENV_BOOTED_OSFLAGS, envval, sizeof(envval));
+  if (nbytes < 0) {
+    nbytes = 0;
+  }
+  envval[nbytes] = '\0';
+  strcpy((char*)ZERO_PGE, envval);
+
+  srm_printk(" Ok\nNow booting the kernel\n");
+  runkernel();
+  for (i = 0 ; i < 0x100000000 ; i++)
+    ;
+  __halt();
+}
+// SPDX-License-Identifier: GPL-2.0
+
+
+#include <linux/kernel.h>
+#include <linux/slab.h>
+
+#include <linux/uaccess.h>
+
+#define memzero(s,n)  memset ((s),0,(n))
+#define puts    srm_printk
+extern long srm_printk(const char *, ...)
+     __attribute__ ((format (printf, 1, 2)));
+
+
+#define OF(args)  args
+#define STATIC static
+
+typedef unsigned char  uch;
+typedef unsigned short ush;
+typedef unsigned long  ulg;
+
+#define WSIZE 0x8000    
+        
+
+static uch *inbuf;    
+static uch *window;    
+
+static unsigned insize;    
+static unsigned inptr;    
+static unsigned outcnt;    
+
+
+#define ASCII_FLAG   0x01 
+#define CONTINUATION 0x02 
+#define EXTRA_FIELD  0x04 
+#define ORIG_NAME    0x08 
+#define COMMENT      0x10 
+#define ENCRYPTED    0x20 
+#define RESERVED     0xC0 
+
+#define get_byte()  (inptr < insize ? inbuf[inptr++] : fill_inbuf())
+
+
+#ifdef DEBUG
+#  define Assert(cond,msg) {if(!(cond)) error(msg);}
+#  define Trace(x) fprintf x
+#  define Tracev(x) {if (verbose) fprintf x ;}
+#  define Tracevv(x) {if (verbose>1) fprintf x ;}
+#  define Tracec(c,x) {if (verbose && (c)) fprintf x ;}
+#  define Tracecv(c,x) {if (verbose>1 && (c)) fprintf x ;}
+#else
+#  define Assert(cond,msg)
+#  define Trace(x)
+#  define Tracev(x)
+#  define Tracevv(x)
+#  define Tracec(c,x)
+#  define Tracecv(c,x)
+#endif
+
+static int  fill_inbuf(void);
+static void flush_window(void);
+static void error(char *m);
+
+static char *input_data;
+static int  input_data_size;
+
+static uch *output_data;
+static ulg output_ptr;
+static ulg bytes_out;
+
+static void error(char *m);
+static void gzip_mark(void **);
+static void gzip_release(void **);
+
+extern int end;
+static ulg free_mem_ptr;
+static ulg free_mem_end_ptr;
+
+#define HEAP_SIZE 0x3000
+
+#include "../../../lib/inflate.c"
+
+
+int fill_inbuf(void)
+{
+  if (insize != 0)
+    error("ran out of input data");
+
+  inbuf = input_data;
+  insize = input_data_size;
+
+  inptr = 1;
+  return inbuf[0];
+}
+
+
+void flush_window(void)
+{
+  ulg c = crc;
+  unsigned n;
+  uch *in, *out, ch;
+
+  in = window;
+  out = &output_data[output_ptr];
+  for (n = 0; n < outcnt; n++) {
+    ch = *out++ = *in++;
+    c = crc_32_tab[((int)c ^ ch) & 0xff] ^ (c >> 8);
+  }
+  crc = c;
+  bytes_out += (ulg)outcnt;
+  output_ptr += (ulg)outcnt;
+  outcnt = 0;
+
+}
+
+static void error(char *x)
+{
+  puts("\n\n");
+  puts(x);
+  puts("\n\n -- System halted");
+
+  while(1);  
+}
+
+unsigned int
+decompress_kernel(void *output_start,
+      void *input_start,
+      size_t ksize,
+      size_t kzsize)
+{
+  output_data    = (uch *)output_start;
+  input_data    = (uch *)input_start;
+  input_data_size    = kzsize; 
+
+  
+  free_mem_ptr    = (ulg)output_start + ksize;
+  free_mem_end_ptr  = (ulg)output_start + ksize + 0x200000;
+  
+
+  
+  window = malloc(WSIZE);
+
+  makecrc();
+
+  gunzip();
+
+  return output_ptr;
+}
+
+#include <stdarg.h>
+#include <stddef.h>
+
+size_t strnlen(const char * s, size_t count)
+{
+  const char *sc;
+
+  for (sc = s; count-- && *sc != '\0'; ++sc)
+    ;
+  return sc - s;
+}
+
+# define do_div(n, base) ({            \
+  unsigned int __base = (base);          \
+  unsigned int __rem;            \
+  __rem = ((unsigned long long)(n)) % __base;      \
+  (n) = ((unsigned long long)(n)) / __base;      \
+  __rem;                \
+})
+
+
+static int skip_atoi(const char **s)
+{
+  int i, c;
+
+  for (i = 0; '0' <= (c = **s) && c <= '9'; ++*s)
+    i = i*10 + c - '0';
+  return i;
+}
+
+#define ZEROPAD  1    
+#define SIGN  2    
+#define PLUS  4    
+#define SPACE  8    
+#define LEFT  16    
+#define SPECIAL  32    
+#define LARGE  64    
+
+static char * number(char * str, unsigned long long num, int base, int size, int precision, int type)
+{
+  char c,sign,tmp[66];
+  const char *digits="0123456789abcdefghijklmnopqrstuvwxyz";
+  int i;
+
+  if (type & LARGE)
+    digits = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  if (type & LEFT)
+    type &= ~ZEROPAD;
+  if (base < 2 || base > 36)
+    return 0;
+  c = (type & ZEROPAD) ? '0' : ' ';
+  sign = 0;
+  if (type & SIGN) {
+    if ((signed long long)num < 0) {
+      sign = '-';
+      num = - (signed long long)num;
+      size--;
+    } else if (type & PLUS) {
+      sign = '+';
+      size--;
+    } else if (type & SPACE) {
+      sign = ' ';
+      size--;
+    }
+  }
+  if (type & SPECIAL) {
+    if (base == 16)
+      size -= 2;
+    else if (base == 8)
+      size--;
+  }
+  i = 0;
+  if (num == 0)
+    tmp[i++]='0';
+  else while (num != 0) {
+    tmp[i++] = digits[do_div(num, base)];
+  }
+  if (i > precision)
+    precision = i;
+  size -= precision;
+  if (!(type&(ZEROPAD+LEFT)))
+    while(size-->0)
+      *str++ = ' ';
+  if (sign)
+    *str++ = sign;
+  if (type & SPECIAL) {
+    if (base==8)
+      *str++ = '0';
+    else if (base==16) {
+      *str++ = '0';
+      *str++ = digits[33];
+    }
+  }
+  if (!(type & LEFT))
+    while (size-- > 0)
+      *str++ = c;
+  while (i < precision--)
+    *str++ = '0';
+  while (i-- > 0)
+    *str++ = tmp[i];
+  while (size-- > 0)
+    *str++ = ' ';
+  return str;
+}
+
+int vsprintf(char *buf, const char *fmt, va_list args)
+{
+  int len;
+  unsigned long long num;
+  int i, base;
+  char * str;
+  const char *s;
+
+  int flags;    
+
+  int field_width;  
+  int precision;    
+  int qualifier;    
+                          
+        
+
+
+  for (str=buf ; *fmt ; ++fmt) {
+    if (*fmt != '%') {
+      *str++ = *fmt;
+      continue;
+    }
+
+    
+    flags = 0;
+    repeat:
+      ++fmt;    
+      switch (*fmt) {
+        case '-': flags |= LEFT; goto repeat;
+        case '+': flags |= PLUS; goto repeat;
+        case ' ': flags |= SPACE; goto repeat;
+        case '#': flags |= SPECIAL; goto repeat;
+        case '0': flags |= ZEROPAD; goto repeat;
+        }
+
+    
+    field_width = -1;
+    if ('0' <= *fmt && *fmt <= '9')
+      field_width = skip_atoi(&fmt);
+    else if (*fmt == '*') {
+      ++fmt;
+      
+      field_width = va_arg(args, int);
+      if (field_width < 0) {
+        field_width = -field_width;
+        flags |= LEFT;
+      }
+    }
+
+    
+    precision = -1;
+    if (*fmt == '.') {
+      ++fmt;
+      if ('0' <= *fmt && *fmt <= '9')
+        precision = skip_atoi(&fmt);
+      else if (*fmt == '*') {
+        ++fmt;
+        
+        precision = va_arg(args, int);
+      }
+      if (precision < 0)
+        precision = 0;
+    }
+
+    
+    qualifier = -1;
+    if (*fmt == 'l' && *(fmt + 1) == 'l') {
+      qualifier = 'q';
+      fmt += 2;
+    } else if (*fmt == 'h' || *fmt == 'l' || *fmt == 'L'
+      || *fmt == 'Z') {
+      qualifier = *fmt;
+      ++fmt;
+    }
+
+    
+    base = 10;
+
+    switch (*fmt) {
+    case 'c':
+      if (!(flags & LEFT))
+        while (--field_width > 0)
+          *str++ = ' ';
+      *str++ = (unsigned char) va_arg(args, int);
+      while (--field_width > 0)
+        *str++ = ' ';
+      continue;
+
+    case 's':
+      s = va_arg(args, char *);
+      if (!s)
+        s = "<NULL>";
+
+      len = strnlen(s, precision);
+
+      if (!(flags & LEFT))
+        while (len < field_width--)
+          *str++ = ' ';
+      for (i = 0; i < len; ++i)
+        *str++ = *s++;
+      while (len < field_width--)
+        *str++ = ' ';
+      continue;
+
+    case 'p':
+      if (field_width == -1) {
+        field_width = 2*sizeof(void *);
+        flags |= ZEROPAD;
+      }
+      str = number(str,
+        (unsigned long) va_arg(args, void *), 16,
+        field_width, precision, flags);
+      continue;
+
+
+    case 'n':
+      if (qualifier == 'l') {
+        long * ip = va_arg(args, long *);
+        *ip = (str - buf);
+      } else if (qualifier == 'Z') {
+        size_t * ip = va_arg(args, size_t *);
+        *ip = (str - buf);
+      } else {
+        int * ip = va_arg(args, int *);
+        *ip = (str - buf);
+      }
+      continue;
+
+    case '%':
+      *str++ = '%';
+      continue;
+
+    
+    case 'o':
+      base = 8;
+      break;
+
+    case 'X':
+      flags |= LARGE;
+    case 'x':
+      base = 16;
+      break;
+
+    case 'd':
+    case 'i':
+      flags |= SIGN;
+    case 'u':
+      break;
+
+    default:
+      *str++ = '%';
+      if (*fmt)
+        *str++ = *fmt;
+      else
+        --fmt;
+      continue;
+    }
+    if (qualifier == 'l') {
+      num = va_arg(args, unsigned long);
+      if (flags & SIGN)
+        num = (signed long) num;
+    } else if (qualifier == 'q') {
+      num = va_arg(args, unsigned long long);
+      if (flags & SIGN)
+        num = (signed long long) num;
+    } else if (qualifier == 'Z') {
+      num = va_arg(args, size_t);
+    } else if (qualifier == 'h') {
+      num = (unsigned short) va_arg(args, int);
+      if (flags & SIGN)
+        num = (signed short) num;
+    } else {
+      num = va_arg(args, unsigned int);
+      if (flags & SIGN)
+        num = (signed int) num;
+    }
+    str = number(str, num, base, field_width, precision, flags);
+  }
+  *str = '\0';
+  return str-buf;
+}
+
+int sprintf(char * buf, const char *fmt, ...)
+{
+  va_list args;
+  int i;
+
+  va_start(args, fmt);
+  i=vsprintf(buf,fmt,args);
+  va_end(args);
+  return i;
+}
+// SPDX-License-Identifier: GPL-2.0
+
+
+
+
+
+
+#ifndef MAXPARTITIONS
+#define MAXPARTITIONS   8                       
+#endif
+
+#ifndef u8
+#define u8 unsigned char
+#endif
+
+#ifndef u16
+#define u16 unsigned short
+#endif
+
+#ifndef u32
+#define u32 unsigned int
+#endif
+
+struct disklabel {
+    u32  d_magic;        
+    u16  d_type, d_subtype;
+    u8  d_typename[16];
+    u8  d_packname[16];
+    u32  d_secsize;
+    u32  d_nsectors;
+    u32  d_ntracks;
+    u32  d_ncylinders;
+    u32  d_secpercyl;
+    u32  d_secprtunit;
+    u16  d_sparespertrack;
+    u16  d_sparespercyl;
+    u32  d_acylinders;
+    u16  d_rpm, d_interleave, d_trackskew, d_cylskew;
+    u32  d_headswitch, d_trkseek, d_flags;
+    u32  d_drivedata[5];
+    u32  d_spare[5];
+    u32  d_magic2;        
+    u16  d_checksum;
+    u16  d_npartitions;
+    u32  d_bbsize, d_sbsize;
+    struct d_partition {
+  u32  p_size;
+  u32  p_offset;
+  u32  p_fsize;
+  u8  p_fstype;
+  u8  p_frag;
+  u16  p_cpg;
+    } d_partitions[MAXPARTITIONS];
+};
+
+
+typedef union __bootblock {
+    struct {
+        char      __pad1[64];
+        struct disklabel  __label;
+    } __u1;
+    struct {
+  unsigned long    __pad2[63];
+  unsigned long    __checksum;
+    } __u2;
+    char    bootblock_bytes[512];
+    unsigned long  bootblock_quadwords[64];
+} bootblock;
+
+#define  bootblock_label    __u1.__label
+#define bootblock_checksum  __u2.__checksum
+
+int main(int argc, char ** argv)
+{
+    bootblock    bootblock_from_disk;
+    bootblock    bootloader_image;
+    int      dev, fd;
+    int      i;
+    int      nread;
+
+    
+    if(argc != 3) {
+  fprintf(stderr, "Usage: %s device lxboot\n", argv[0]);
+  exit(0);
+    }
+
+    
+    dev = open(argv[1], O_RDWR);
+    if(dev < 0) {
+  perror(argv[1]);
+  exit(0);
+    }
+
+    
+    fd = open(argv[2], O_RDONLY);
+    if(fd < 0) {
+  perror(argv[2]);
+  close(dev);
+  exit(0);
+    }
+
+    
+    nread = read(fd, &bootloader_image, sizeof(bootblock));
+    if(nread != sizeof(bootblock)) {
+  perror("lxboot read");
+  fprintf(stderr, "expected %zd, got %d\n", sizeof(bootblock), nread);
+  exit(0);
+    }
+
+    
+    nread = read(dev, &bootblock_from_disk, sizeof(bootblock));
+    if(nread != sizeof(bootblock)) {
+  perror("bootblock read");
+  fprintf(stderr, "expected %zd, got %d\n", sizeof(bootblock), nread);
+  exit(0);
+    }
+
+    
+    bootloader_image.bootblock_label = bootblock_from_disk.bootblock_label;
+
+    
+    bootloader_image.bootblock_checksum = 0;
+    for(i = 0; i < 63; i++) {
+  bootloader_image.bootblock_checksum +=
+      bootloader_image.bootblock_quadwords[i];
+    }
+
+    
+    lseek(dev, 0L, SEEK_SET);
+    if(write(dev, &bootloader_image, sizeof(bootblock)) != sizeof(bootblock)) {
+  perror("bootblock write");
+  exit(0);
+    }
+
+    close(fd);
+    close(dev);
+    exit(0);
+}
+
+
+// SPDX-License-Identifier: GPL-2.0
+
+
+
+
+#define BLOCK_SIZE  512
+
+const char * prog_name;
+
+
+static void
+usage (void)
+{
+    fprintf(stderr,
+      "usage: %s [-v] -p file primary\n"
+      "       %s [-vb] file [secondary]\n", prog_name, prog_name);
+    exit(1);
+}
+
+
+int
+main (int argc, char *argv[])
+{
+    size_t nwritten, tocopy, n, mem_size, fil_size, pad = 0;
+    int fd, ofd, i, j, verbose = 0, primary = 0;
+    char buf[8192], *inname;
+    struct exec * aout;    
+    long offset;
+#ifdef __ELF__
+    struct elfhdr *elf;
+    struct elf_phdr *elf_phdr;  
+    unsigned long long e_entry;
+#endif
+
+    prog_name = argv[0];
+
+    for (i = 1; i < argc && argv[i][0] == '-'; ++i) {
+  for (j = 1; argv[i][j]; ++j) {
+      switch (argv[i][j]) {
+        case 'v':
+      verbose = ~verbose;
+      break;
+
+        case 'b':
+      pad = BLOCK_SIZE;
+      break;
+
+        case 'p':
+      primary = 1;    
+      break;
+      }
+  }
+    }
+
+    if (i >= argc) {
+  usage();
+    }
+    inname = argv[i++];
+
+    fd = open(inname, O_RDONLY);
+    if (fd == -1) {
+  perror("open");
+  exit(1);
+    }
+
+    ofd = 1;
+    if (i < argc) {
+  ofd = open(argv[i++], O_WRONLY | O_CREAT | O_TRUNC, 0666);
+  if (ofd == -1) {
+      perror("open");
+      exit(1);
+  }
+    }
+
+    if (primary) {
+  
+
+  unsigned long bb[64], sum = 0;
+  struct stat st;
+  off_t size;
+  int i;
+
+  if (ofd == 1) {
+      usage();
+  }
+
+  if (fstat(fd, &st) == -1) {
+      perror("fstat");
+      exit(1);
+  }
+
+  size = (st.st_size + BLOCK_SIZE - 1) & ~(BLOCK_SIZE - 1);
+  memset(bb, 0, sizeof(bb));
+  strcpy((char *) bb, "Linux SRM bootblock");
+  bb[60] = size / BLOCK_SIZE;  
+  bb[61] = 1;      
+  bb[62] = 0;      
+  for (i = 0; i < 63; ++i) {
+      sum += bb[i];
+  }
+  bb[63] = sum;
+  if (write(ofd, bb, sizeof(bb)) != sizeof(bb)) {
+      perror("boot-block write");
+      exit(1);
+  }
+  printf("%lu\n", size);
+  return 0;
+    }
+
+    
+
+    if (read(fd, buf, sizeof(buf)) < 0) {
+  perror("read");
+  exit(1);
+    }
+
+#ifdef __ELF__
+    elf = (struct elfhdr *) buf;
+
+    if (elf->e_ident[0] == 0x7f && strncmp((char *)elf->e_ident + 1, "ELF", 3) == 0) {
+  if (elf->e_type != ET_EXEC) {
+      fprintf(stderr, "%s: %s is not an ELF executable\n",
+        prog_name, inname);
+      exit(1);
+  }
+  if (!elf_check_arch(elf)) {
+      fprintf(stderr, "%s: is not for this processor (e_machine=%d)\n",
+        prog_name, elf->e_machine);
+      exit(1);
+  }
+  if (elf->e_phnum != 1) {
+      fprintf(stderr,
+        "%s: %d program headers (forgot to link with -N?)\n",
+        prog_name, elf->e_phnum);
+  }
+
+  e_entry = elf->e_entry;
+
+  lseek(fd, elf->e_phoff, SEEK_SET);
+  if (read(fd, buf, sizeof(*elf_phdr)) != sizeof(*elf_phdr)) {
+      perror("read");
+      exit(1);
+  }
+
+  elf_phdr = (struct elf_phdr *) buf;
+  offset   = elf_phdr->p_offset;
+  mem_size = elf_phdr->p_memsz;
+  fil_size = elf_phdr->p_filesz;
+
+  
+  if (elf_phdr->p_vaddr < e_entry) {
+      unsigned long delta = e_entry - elf_phdr->p_vaddr;
+      offset   += delta;
+      mem_size -= delta;
+      fil_size -= delta;
+      elf_phdr->p_vaddr += delta;
+  }
+
+  if (verbose) {
+      fprintf(stderr, "%s: extracting %#016lx-%#016lx (at %lx)\n",
+        prog_name, (long) elf_phdr->p_vaddr,
+        elf_phdr->p_vaddr + fil_size, offset);
+  }
+    } else
+#endif
+    {
+  aout = (struct exec *) buf;
+
+  if (!(aout->fh.f_flags & COFF_F_EXEC)) {
+      fprintf(stderr, "%s: %s is not in executable format\n",
+        prog_name, inname);
+      exit(1);
+  }
+
+  if (aout->fh.f_opthdr != sizeof(aout->ah)) {
+      fprintf(stderr, "%s: %s has unexpected optional header size\n",
+        prog_name, inname);
+      exit(1);
+  }
+
+  if (N_MAGIC(*aout) != OMAGIC) {
+      fprintf(stderr, "%s: %s is not an OMAGIC file\n",
+        prog_name, inname);
+      exit(1);
+  }
+  offset = N_TXTOFF(*aout);
+  fil_size = aout->ah.tsize + aout->ah.dsize;
+  mem_size = fil_size + aout->ah.bsize;
+
+  if (verbose) {
+      fprintf(stderr, "%s: extracting %#016lx-%#016lx (at %lx)\n",
+        prog_name, aout->ah.text_start,
+        aout->ah.text_start + fil_size, offset);
+  }
+    }
+
+    if (lseek(fd, offset, SEEK_SET) != offset) {
+  perror("lseek");
+  exit(1);
+    }
+
+    if (verbose) {
+  fprintf(stderr, "%s: copying %lu byte from %s\n",
+    prog_name, (unsigned long) fil_size, inname);
+    }
+
+    tocopy = fil_size;
+    while (tocopy > 0) {
+  n = tocopy;
+  if (n > sizeof(buf)) {
+      n = sizeof(buf);
+  }
+  tocopy -= n;
+  if ((size_t) read(fd, buf, n) != n) {
+      perror("read");
+      exit(1);
+  }
+  do {
+      nwritten = write(ofd, buf, n);
+      if ((ssize_t) nwritten == -1) {
+    perror("write");
+    exit(1);
+      }
+      n -= nwritten;
+  } while (n > 0);
+    }
+
+    if (pad) {
+  mem_size = ((mem_size + pad - 1) / pad) * pad;
+    }
+
+    tocopy = mem_size - fil_size;
+    if (tocopy > 0) {
+  fprintf(stderr,
+    "%s: zero-filling bss and aligning to %lu with %lu bytes\n",
+    prog_name, pad, (unsigned long) tocopy);
+
+  memset(buf, 0x00, sizeof(buf));
+  do {
+      n = tocopy;
+      if (n > sizeof(buf)) {
+    n = sizeof(buf);
+      }
+      nwritten = write(ofd, buf, n);
+      if ((ssize_t) nwritten == -1) {
+    perror("write");
+    exit(1);
+      }
+      tocopy -= nwritten;
+  } while (tocopy > 0);
+    }
+    return 0;
+}
+// SPDX-License-Identifier: GPL-2.0
+
+
+
+void foo(void)
+{
+  DEFINE(TI_TASK, offsetof(struct thread_info, task));
+  DEFINE(TI_FLAGS, offsetof(struct thread_info, flags));
+  DEFINE(TI_CPU, offsetof(struct thread_info, cpu));
+  BLANK();
+
+        DEFINE(TASK_BLOCKED, offsetof(struct task_struct, blocked));
+        DEFINE(TASK_CRED, offsetof(struct task_struct, cred));
+        DEFINE(TASK_REAL_PARENT, offsetof(struct task_struct, real_parent));
+        DEFINE(TASK_GROUP_LEADER, offsetof(struct task_struct, group_leader));
+        DEFINE(TASK_TGID, offsetof(struct task_struct, tgid));
+        BLANK();
+
+        DEFINE(CRED_UID,  offsetof(struct cred, uid));
+        DEFINE(CRED_EUID, offsetof(struct cred, euid));
+        DEFINE(CRED_GID,  offsetof(struct cred, gid));
+        DEFINE(CRED_EGID, offsetof(struct cred, egid));
+        BLANK();
+
+  DEFINE(SIZEOF_PT_REGS, sizeof(struct pt_regs));
+  DEFINE(PT_PTRACED, PT_PTRACED);
+  DEFINE(CLONE_VM, CLONE_VM);
+  DEFINE(CLONE_UNTRACED, CLONE_UNTRACED);
+  DEFINE(SIGCHLD, SIGCHLD);
+  BLANK();
+
+  DEFINE(HAE_CACHE, offsetof(struct alpha_machine_vector, hae_cache));
+  DEFINE(HAE_REG, offsetof(struct alpha_machine_vector, hae_register));
+}
+
+static unsigned dir_class[] = {
+#include <asm-generic/audit_dir_write.h>
+~0U
+};
+
+static unsigned read_class[] = {
+#include <asm-generic/audit_read.h>
+~0U
+};
+
+static unsigned write_class[] = {
+#include <asm-generic/audit_write.h>
+~0U
+};
+
+static unsigned chattr_class[] = {
+#include <asm-generic/audit_change_attr.h>
+~0U
+};
+
+static unsigned signal_class[] = {
+#include <asm-generic/audit_signal.h>
+~0U
+};
+
+int audit_classify_arch(int arch)
+{
+  return 0;
+}
+
+int audit_classify_syscall(int abi, unsigned syscall)
+{
+  switch(syscall) {
+  case __NR_open:
+    return 2;
+  case __NR_openat:
+    return 3;
+  case __NR_execve:
+    return 5;
+  default:
+    return 0;
+  }
+}
+
+static int __init audit_classes_init(void)
+{
+  audit_register_class(AUDIT_CLASS_WRITE, write_class);
+  audit_register_class(AUDIT_CLASS_READ, read_class);
+  audit_register_class(AUDIT_CLASS_DIR_WRITE, dir_class);
+  audit_register_class(AUDIT_CLASS_CHATTR, chattr_class);
+  audit_register_class(AUDIT_CLASS_SIGNAL, signal_class);
+  return 0;
+}
+
+__initcall(audit_classes_init);
+// SPDX-License-Identifier: GPL-2.0
+
+static int load_binary(struct linux_binprm *bprm)
+{
+  struct exec *eh = (struct exec *)bprm->buf;
+  unsigned long loader;
+  struct file *file;
+  int retval;
+
+  if (eh->fh.f_magic != 0x183 || (eh->fh.f_flags & 0x3000) != 0x3000)
+    return -ENOEXEC;
+
+  if (bprm->loader)
+    return -ENOEXEC;
+
+  allow_write_access(bprm->file);
+  fput(bprm->file);
+  bprm->file = NULL;
+
+  loader = bprm->vma->vm_end - sizeof(void *);
+
+  file = open_exec("/sbin/loader");
+  retval = PTR_ERR(file);
+  if (IS_ERR(file))
+    return retval;
+
+  
+  bprm->taso = eh->ah.entry < 0x100000000UL;
+
+  bprm->file = file;
+  bprm->loader = loader;
+  retval = prepare_binprm(bprm);
+  if (retval < 0)
+    return retval;
+  return search_binary_handler(bprm);
+}
+
+static struct linux_binfmt loader_format = {
+  .load_binary  = load_binary,
+};
+
+static int __init init_loader_binfmt(void)
+{
+  insert_binfmt(&loader_format);
+  return 0;
+}
+arch_initcall(init_loader_binfmt);
+
+
+#ifdef CONFIG_SYSFS
+
+static int cpu_is_ev6_or_later(void)
+{
+  struct percpu_struct *cpu;
+        unsigned long cputype;
+
+        cpu = (struct percpu_struct *)((char *)hwrpb + hwrpb->processor_offset);
+        cputype = cpu->type & 0xffffffff;
+        
+        return (cputype == EV6_CPU) || ((cputype >= EV67_CPU) && (cputype <= EV69_CPU));
+}
+
+ssize_t cpu_show_meltdown(struct device *dev,
+        struct device_attribute *attr, char *buf)
+{
+  if (cpu_is_ev6_or_later())
+    return sprintf(buf, "Vulnerable\n");
+  else
+    return sprintf(buf, "Not affected\n");
+}
+
+ssize_t cpu_show_spectre_v1(struct device *dev,
+                            struct device_attribute *attr, char *buf)
+{
+  if (cpu_is_ev6_or_later())
+    return sprintf(buf, "Vulnerable\n");
+  else
+    return sprintf(buf, "Not affected\n");
+}
+
+ssize_t cpu_show_spectre_v2(struct device *dev,
+          struct device_attribute *attr, char *buf)
+{
+  if (cpu_is_ev6_or_later())
+    return sprintf(buf, "Vulnerable\n");
+  else
+    return sprintf(buf, "Not affected\n");
+}
+#endif
+// SPDX-License-Identifier: GPL-2.0
+
+
+
+#ifdef CONFIG_VGA_HOSE
+
+struct pci_controller *pci_vga_hose;
+static struct resource alpha_vga = {
+  .name  = "alpha-vga+",
+  .flags  = IORESOURCE_IO,
+  .start  = 0x3C0,
+  .end  = 0x3DF
+};
+
+static struct pci_controller * __init
+default_vga_hose_select(struct pci_controller *h1, struct pci_controller *h2)
+{
+  if (h2->index < h1->index)
+    return h2;
+
+  return h1;
+}
+
+void __init
+locate_and_init_vga(void *(*sel_func)(void *, void *))
+{
+  struct pci_controller *hose = NULL;
+  struct pci_dev *dev = NULL;
+
+  
+  if (!sel_func) sel_func = (void *)default_vga_hose_select;
+
+  
+  for(dev=NULL; (dev=pci_get_class(PCI_CLASS_DISPLAY_VGA << 8, dev));) {
+    if (!hose)
+      hose = dev->sysdata;
+    else
+      hose = sel_func(hose, dev->sysdata);
+  }
+
+  
+  if (!hose || (conswitchp == &vga_con && pci_vga_hose == hose))
+    return;
+
+  
+  alpha_vga.start += hose->io_space->start;
+  alpha_vga.end += hose->io_space->start;
+  request_resource(hose->io_space, &alpha_vga);
+
+  
+  pci_vga_hose = hose;
+  console_lock();
+  do_take_over_console(&vga_con, 0, MAX_NR_CONSOLES-1, 1);
+  console_unlock();
+}
+
+void __init
+find_console_vga_hose(void)
+{
+  u64 *pu64 = (u64 *)((u64)hwrpb + hwrpb->ctbt_offset);
+
+  if (pu64[7] == 3) {  
+    struct pci_controller *hose;
+    int h = (pu64[30] >> 24) & 0xff;  
+
+    
+    for (hose = hose_head; hose; hose = hose->next) {
+      if (hose->index == h) break;
+    }
+
+    if (hose) {
+      printk("Console graphics on hose %d\n", h);
+      pci_vga_hose = hose;
+    }
+  }
+}
+
+#endif
+// SPDX-License-Identifier: GPL-2.0
+
+
+
+
+
+
+
+#define DEBUG_CONFIG 0
+
+#if DEBUG_CONFIG
+# define DBGC(args)  printk args
+#else
+# define DBGC(args)
+#endif
+
+#define vuip  volatile unsigned int  *
+
+
+
+static int
+mk_conf_addr(struct pci_bus *pbus, unsigned int device_fn, int where,
+       unsigned long *pci_addr, unsigned char *type1)
+{
+  unsigned long addr;
+  u8 bus = pbus->number;
+
+  DBGC(("mk_conf_addr(bus=%d ,device_fn=0x%x, where=0x%x,"
+        " pci_addr=0x%p, type1=0x%p)\n",
+        bus, device_fn, where, pci_addr, type1));
+
+  if (bus == 0) {
+    int device = device_fn >> 3;
+
+    
+
+    if (device > 20) {
+      DBGC(("mk_conf_addr: device (%d) > 20, returning -1\n",
+            device));
+      return -1;
+    }
+
+    *type1 = 0;
+    addr = (device_fn << 8) | (where);
+  } else {
+    
+    *type1 = 1;
+    addr = (bus << 16) | (device_fn << 8) | (where);
+  }
+  *pci_addr = addr;
+  DBGC(("mk_conf_addr: returning pci_addr 0x%lx\n", addr));
+  return 0;
+}
+
+static unsigned int
+conf_read(unsigned long addr, unsigned char type1)
+{
+  unsigned long flags;
+  unsigned int stat0, value;
+  unsigned int haxr2 = 0;
+
+  local_irq_save(flags);  
+
+  DBGC(("conf_read(addr=0x%lx, type1=%d)\n", addr, type1));
+
+  
+  stat0 = *(vuip)APECS_IOC_DCSR;
+  *(vuip)APECS_IOC_DCSR = stat0;
+  mb();
+  DBGC(("conf_read: APECS DCSR was 0x%x\n", stat0));
+
+  
+  if (type1) {
+    haxr2 = *(vuip)APECS_IOC_HAXR2;
+    mb();
+    *(vuip)APECS_IOC_HAXR2 = haxr2 | 1;
+    DBGC(("conf_read: TYPE1 access\n"));
+  }
+
+  draina();
+  mcheck_expected(0) = 1;
+  mcheck_taken(0) = 0;
+  mb();
+
+  
+
+  
+  asm volatile("ldl %0,%1; mb; mb" : "=r"(value) : "m"(*(vuip)addr)
+         : "$9", "$10", "$11", "$12", "$13", "$14", "memory");
+
+  if (mcheck_taken(0)) {
+    mcheck_taken(0) = 0;
+    value = 0xffffffffU;
+    mb();
+  }
+  mcheck_expected(0) = 0;
+  mb();
+
+#if 1
+  
+  draina();
+
+  
+  stat0 = *(vuip)APECS_IOC_DCSR;
+  DBGC(("conf_read: APECS DCSR after read 0x%x\n", stat0));
+
+  
+  if (stat0 & 0xffe0U) {
+    
+    if (!(stat0 & 0x0800)) {
+      printk("apecs.c:conf_read: got stat0=%x\n", stat0);
+    }
+
+    
+    *(vuip)APECS_IOC_DCSR = stat0;
+    mb();
+    wrmces(0x7);      
+    value = 0xffffffff;
+  }
+#endif
+
+  
+  if (type1) {
+    *(vuip)APECS_IOC_HAXR2 = haxr2 & ~1;
+    mb();
+  }
+  local_irq_restore(flags);
+
+  return value;
+}
+
+static void
+conf_write(unsigned long addr, unsigned int value, unsigned char type1)
+{
+  unsigned long flags;
+  unsigned int stat0;
+  unsigned int haxr2 = 0;
+
+  local_irq_save(flags);  
+
+  
+  stat0 = *(vuip)APECS_IOC_DCSR;
+  *(vuip)APECS_IOC_DCSR = stat0;
+  mb();
+
+  
+  if (type1) {
+    haxr2 = *(vuip)APECS_IOC_HAXR2;
+    mb();
+    *(vuip)APECS_IOC_HAXR2 = haxr2 | 1;
+  }
+
+  draina();
+  mcheck_expected(0) = 1;
+  mb();
+
+  
+  *(vuip)addr = value;
+  mb();
+  mb();  
+  mcheck_expected(0) = 0;
+  mb();
+
+#if 1
+  
+  draina();
+
+  
+  stat0 = *(vuip)APECS_IOC_DCSR;
+
+  
+  if (stat0 & 0xffe0U) {
+    
+    if (!(stat0 & 0x0800)) {
+      printk("apecs.c:conf_write: got stat0=%x\n", stat0);
+    }
+
+    
+    *(vuip)APECS_IOC_DCSR = stat0;
+    mb();
+    wrmces(0x7);      
+  }
+#endif
+
+  
+  if (type1) {
+    *(vuip)APECS_IOC_HAXR2 = haxr2 & ~1;
+    mb();
+  }
+  local_irq_restore(flags);
+}

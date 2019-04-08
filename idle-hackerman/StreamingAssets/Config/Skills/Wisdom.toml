@@ -1,0 +1,66 @@
+[skill_mind_1]
+category = "mind"
+name = "Acknowledgement"
+description = "Your mind has issues and has a lot of room for improvement, you acknowledge it"
+requiredWisdom = 1
+
+tapWorkFactor = 2
+
+
+[skill_mind_2]
+category = "mind"
+name = "Acceptance"
+description = "Accept yourself and stop worrying"
+requires = [ "skill_mind_1" ]
+requiredWisdom = 2
+requiredKnowledge = 1
+
+tapWorkFactor = 2
+
+
+[skill_mind_3]
+category = "mind"
+name = "Meditation"
+description = "Free your mind of unnecessary distractions"
+requires = [ "skill_mind_2" ]
+requiredWisdom = 3
+requiredKnowledge = 1
+requiredConstitution = 1
+
+tapWorkFactor = 2
+
+
+[skill_mind_4]
+category = "mind"
+name = "Mindfulness"
+description = "Be always focussed on the here and now"
+requires = [ "skill_mind_3" ]
+requiredWisdom = 4
+requiredKnowledge = 2
+requiredConstitution = 1
+
+tapWorkFactor = 2
+
+
+[skill_mind_5]
+category = "mind"
+name = "Understanding"
+description = "Everything makes sense and seem logical, natural"
+requires = [ "skill_mind_4" ]
+requiredWisdom = 5
+requiredKnowledge = 2
+requiredConstitution = 2
+
+tapWorkFactor = 2
+
+
+[skill_mind_6]
+category = "mind"
+name = "Unification"
+description = "You have acute and deep consciousness and understanding of everything that you perceive and know"
+requires = [ "skill_mind_5" ]
+requiredWisdom = 6
+requiredKnowledge = 3
+requiredConstitution = 2
+
+tapWorkFactor = 2

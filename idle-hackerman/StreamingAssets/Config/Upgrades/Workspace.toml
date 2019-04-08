@@ -1,0 +1,94 @@
+
+# STANDARD
+
+[upgrade_workspace_0]
+category = "workspace"
+name = "Bedroom"
+description = "Well, it's kind of free"
+
+isAlreadyAcquired = true
+
+
+[upgrade_workspace_1]
+category = "workspace"
+name = "Mom's Basement"
+description = "Almost free"
+costMoney = 1e1
+
+employeeMaximum = 2
+serverMaximum = 2
+taskSizeFactor = 2
+taskRewardFactor = 2
+
+
+[upgrade_workspace_2]
+category = "workspace"
+name = "Coworking Space"
+description = "There are actual people there!"
+requires = [ "upgrade_workspace_1" ]
+costMoney = 1e3
+
+employeeMaximum = 15
+serverMaximum = 15
+taskSizeFactor = 2
+taskRewardFactor = 2
+
+
+[upgrade_workspace_3]
+category = "workspace"
+name = "Small Office"
+description = "Now that's a real thing"
+requires = [ "upgrade_workspace_2" ]
+costMoney = 1e5
+
+employeeMaximum = 200
+serverMaximum = 200
+taskSizeFactor = 2
+taskRewardFactor = 2
+
+
+# EMPLOYEES
+
+[upgrade_workspace_employees_1]
+category = "workspace"
+name = "Decent Office"
+description = "Now that's a real thing"
+requires = [ "upgrade_workspace_3", "skill_employment_2" ]
+costMoney = 1e8
+
+employeeMaximum = 2_000
+employeeCostFactor = 0.5
+
+[upgrade_workspace_employees_2]
+category = "workspace"
+name = "Large Office"
+description = ""
+requires = [ "upgrade_workspace_employees_1", "skill_employment_3" ]
+costMoney = 1e12
+
+employeeMaximum = 50_000
+employeeCostFactor = 0.5
+
+
+# SERVERS
+
+[upgrade_workspace_servers_1]
+category = "workspace"
+name = "Server Room"
+description = ""
+requires = [ "upgrade_workspace_3", "skill_software_2" ]
+costMoney = 1e8
+
+serverMaximum = 2_000
+serverCostFactor = 0.5
+
+
+[upgrade_workspace_servers_2]
+category = "workspace"
+name = "Datacenter"
+description = ""
+requires = [ "upgrade_workspace_servers_1", "skill_software_3" ]
+costMoney = 1e12
+
+serverMaximum = 50_000
+serverCostFactor = 0.5

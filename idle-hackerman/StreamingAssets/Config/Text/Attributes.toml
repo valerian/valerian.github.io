@@ -1,0 +1,152 @@
+
+
+[intelligence]
+description = """
+Mostly help improve your <color="white">tapping efficiency</color>.
+
+Higher levels need <color="white">Knowledge</color> and <color="white">Dexterity</color>."""
+levels = [
+  #0
+  "Dumb",
+  #1
+  "Below average",
+  #2
+  "Normal",
+  #3
+  "Above average",
+  #4
+  "Smart",
+  #5
+  "Genius",
+  #6
+  "Better than any human",
+  #7
+  "Better than any mice or dolphin",
+]
+
+[knowledge]
+description = """
+Mostly help improve <color="white">job rewards</color>.
+
+Higher levels need <color="white">Intelligence</color> and <color="white">Constitution</color>.
+
+Is one of 3 requirements for <color="white">employees upgrades</color> (Charisma, Knowledge, Constitution)"""
+levels = [
+  #0
+  "Dumb",
+  #1
+  "Below average",
+  #2
+  "Normal",
+  #3
+  "Above average",
+  #4
+  "Savant",
+  #5
+  "Living encyclopedia",
+  #6
+  "Better than any human",
+  #7
+  "Better than any mice or dolphin",
+]
+
+[wisdom]
+description = """
+Mostly help improve your <color="white">tapping efficiency</color>.
+
+Higher levels need <color="white">Knowledge</color> and <color="white">Constitution</color>."""
+levels = [
+  #0
+  "Almost crazy",
+  #1
+  "Anxious and distracted",
+  #2
+  "A bit stressed",
+  #3
+  "Mostly relaxed",
+  #4
+  "Calm and focussed",
+  #5
+  "Very clear minded and constantly mindful",
+  #6
+  "In total control and harmony",
+  #7
+  "In a permanent state of nirvana",
+]
+
+
+[constitution]
+description = """
+Mostly help improve <color="white">job rewards</color>.
+
+Higher levels need <color="white">Knowledge</color> and <color="white">Dexterity</color>.
+
+Is one of 3 requirements for <color="white">employees upgrades</color> (Charisma, Knowledge, Constitution)"""
+levels = [
+  #0
+  "Frail",
+  #1
+  "Weak",
+  #2
+  "Normal",
+  #3
+  "Good",
+  #4
+  "Very healthy",
+  #5
+  "Can work for days without sleeping",
+  #6
+  "Cannot feel tired and doesn't ever need sleep",
+  #7
+  "Almost a machine",
+]
+
+[dexterity]
+description = """
+Mostly help improve your <color="white">tapping efficiency</color>.
+
+Higher levels need <color="white">Intelligence</color> and <color="white">Constitution</color>."""
+levels = [
+  #0
+  "Slow and clumsy",
+  #1
+  "Somewhat slow",
+  #2
+  "Normal",
+  #3
+  "Decent reflexes",
+  #4
+  "Good",
+  #5
+  "Ninja-like",
+  #6
+  "Masterful",
+  #7
+  "Legendary",
+]
+
+[charisma]
+description = """
+Mostly help improve <color="white">job rewards</color>.
+
+Higher levels need <color="white">Intelligence</color> and <color="white">Dexterity</color>.
+
+Is one of 3 requirements for <color="white">employees upgrades</color> (Charisma, Knowledge, Constitution)"""
+levels = [
+  #0
+  "Has trouble thinking of others as people",
+  #1
+  "Capable of normal conversation",
+  #2
+  "Interesting, knows what to say to most people",
+  #3
+  "Popular, receives greetings and conversations on the street",
+  #4
+  "Immediately likeable by many people, subject of favorable talk",
+  #5
+  "Loved by almost everybody",
+  #6
+  "Major celebrity",
+  #7
+  "Most people worship you",
+]

@@ -1,0 +1,48 @@
+[Main]
+
+gameVersion = "0.0.1"
+configVersion = "0.0.1"
+
+tapWorkFactor = 1
+
+taskRandomnessRatio = 0.75
+taskWorkFactor = 100
+taskRewardFactor = 1
+taskRewardExperienceFactor = 1
+
+employeeWorkFactor = 1
+employeeCostFactor = 1
+
+serverRandomnessRatio = 0.80
+serverCostFactor = 1
+serverWorkFactor = 1
+serverSizeFactor = 1
+serverCpuFactor = 1
+serverDataFactor = 1
+serverRamFactor = 1
+
+softwareRandomnessRatio = 0.80
+softwareCostFactor = 1
+softwareWorkFactor = 1
+softwareSizeFactor = 1
+softwareCpuFactor = 1
+softwareDataFactor = 1
+softwareRamFactor = 1
+
+attributeBaseCost = 64
+attributeCostMultiplicator = 16
+
+skillCostAttributeCostFactor = 2
+
+maximumAttributeLevel = 7
+
+[Player]
+
+money = 3.50 #treefiddy
+experience = 0
+
+intelligence = 0
+knowledge = 0
+charisma = 0
+constitution = 0
+dexterity = 0

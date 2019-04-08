@@ -1,0 +1,74 @@
+[skill_software_1]
+category = "software"
+name = "Automation"
+description = "You know how to run simple scripts to help you automate your work"
+requiredIntelligence = 1
+requiredWisdom = 1
+requiredDexterity = 1
+
+isAbleToCreateSoftware = true
+
+
+[skill_software_2]
+category = "software"
+name = "Scalability"
+description = "Know how to make all of your software instances run efficiently over multiple servers"
+requires = [ "skill_software_1" ]
+requiredIntelligence = 2
+requiredWisdom = 2
+requiredDexterity = 2
+
+softwareSizeFactor = 2
+softwareEfficiencyFactor = 2
+
+
+[skill_software_3]
+category = "software"
+name = "Database Master"
+description = "Master the efficient use of databases"
+requires = [ "skill_software_2" ]
+requiredIntelligence = 3
+requiredWisdom = 3
+requiredDexterity = 3
+
+softwareSizeFactor = 2
+softwareEfficiencyFactor = 2
+
+
+[skill_software_4]
+category = "software"
+name = "Neural Networks"
+description = "Make your programs improve by themselves"
+requires = [ "skill_software_3" ]
+requiredIntelligence = 4
+requiredWisdom = 4
+requiredDexterity = 4
+
+softwareSizeFactor = 2
+softwareEfficiencyFactor = 2
+
+
+[skill_software_5]
+category = "software"
+name = "Artificial Intelligence"
+description = "Your programs are now much smarter and can take their own decisions"
+requires = [ "skill_software_4" ]
+requiredIntelligence = 5
+requiredWisdom = 5
+requiredDexterity = 5
+
+softwareSizeFactor = 2
+softwareEfficiencyFactor = 2
+
+
+[skill_software_6]
+category = "software"
+name = "Artificial Life"
+description = "Your programs are almost becoming sentient now!"
+requires = [ "skill_software_5" ]
+requiredIntelligence = 6
+requiredWisdom = 6
+requiredDexterity = 6
+
+softwareSizeFactor = 2
+softwareEfficiencyFactor = 2

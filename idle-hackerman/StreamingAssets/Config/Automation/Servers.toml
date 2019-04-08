@@ -1,0 +1,101 @@
+# STANDARD
+
+[server_standard_1]
+name = "Old Campoq Computer"
+description = "Provided by your local WhatMart"
+baseCostMoney = 100
+costIncreaseFactor = 1.10
+cpu = 120
+ram = 64
+data = 20
+
+[server_standard_2]
+name = "Entry Level Dall Computer"
+description = ""
+baseCostMoney = 500
+costIncreaseFactor = 1.12
+cpu = 600
+ram = 512
+data = 100
+
+[server_standard_3]
+name = "Big Computer"
+description = ""
+baseCostMoney = 3_000
+costIncreaseFactor = 1.14
+cpu = 1_200
+ram = 2_048
+data = 1_000
+
+[server_standard_4]
+name = "JCN Rack Server"
+description = ""
+baseCostMoney = 10_000
+costIncreaseFactor = 1.16
+cpu = 2_400
+ram = 8_192
+data = 5_000
+
+[server_standard_5]
+name = "SNAP NAS"
+description = ""
+baseCostMoney = 50_000
+costIncreaseFactor = 1.18
+cpu = 2_400
+ram = 4_096
+data = 42_000
+
+[server_standard_6]
+name = "Quad Neon Server"
+description = ""
+baseCostMoney = 300_000
+costIncreaseFactor = 1.20
+cpu = 16_000
+ram = 65_536
+data = 1_000
+
+
+# TINY
+
+[server_tiny_1]
+name = "Blueberry Cake"
+description = "So cheap that you would think it's a lie"
+requires = [ "skill_electronics" ]
+baseCostMoney = 5
+costIncreaseFactor = 1.05
+cpu = 50
+ram = 32
+data = 5
+
+[server_tiny_2]
+name = "Softuino"
+description = ""
+requires = [ "skill_electronics" ]
+baseCostMoney = 20
+costIncreaseFactor = 1.07
+cpu = 200
+ram = 256
+data = 20
+
+
+# MAINFRAME
+
+[server_mainframe_1]
+name = "BR41N"
+description = ""
+#requires = [ "upgrade_mainframes_1" ]
+baseCostMoney = 2_000_000
+costIncreaseFactor = 1.25
+cpu = 50_000
+ram = 524_288
+data = 10_000
+
+[server_mainframe_2]
+name = "B4NK"
+description = ""
+#requires = [ "upgrade_mainframes_2" ]
+baseCostMoney = 15_000_000
+costIncreaseFactor = 1.30
+cpu = 50_000
+ram = 524_288
+data = 500_000

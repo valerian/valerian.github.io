@@ -1,0 +1,44 @@
+[software_standard_1]
+name = "Weird Script From StockOverflaw"
+description = "I duckduckgoed it!"
+costMoney = 1e2
+cpu = 5
+ram = 3
+data = 2
+workPower = 1
+
+[software_standard_2]
+name = "Software 2"
+description = ""
+costMoney = 1e4
+cpu = 20
+ram = 20
+data = 20
+workPower = 10
+
+[software_standard_3]
+name = "Software 3"
+description = ""
+costMoney = 1e6
+cpu = 200
+ram = 200
+data = 300
+workPower = 300
+
+[software_standard_4]
+name = "Software 4"
+description = ""
+costMoney = 1e9
+cpu = 1_000
+ram = 2_000
+data = 5_000
+workPower = 8_000
+
+[software_standard_5]
+name = "Software 5"
+description = ""
+costMoney = 1e12
+cpu = 20_000
+ram = 80_000
+data = 50_000
+workPower = 200_000

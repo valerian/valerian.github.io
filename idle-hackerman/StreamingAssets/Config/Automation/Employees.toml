@@ -1,0 +1,69 @@
+# STANDARD
+
+[employee_standard_1]
+name = "Beginner Developer"
+description = ""
+baseCostMoney = 100
+costIncreaseFactor = 1.12
+workPower = 1
+
+[employee_standard_2]
+name = "Comfirmed Developer"
+description = ""
+baseCostMoney = 2_000
+costIncreaseFactor = 1.14
+workPower = 25
+
+[employee_standard_3]
+name = "Senior Developer"
+description = ""
+baseCostMoney = 50_000
+costIncreaseFactor = 1.16
+workPower = 600
+
+[employee_standard_4]
+name = "Genius Hacker"
+description = ""
+baseCostMoney = 1_000_000
+costIncreaseFactor = 1.18
+workPower = 15_000
+
+
+# CHEAP
+
+[employee_cheap_1]
+name = "Unpaid Intern"
+description = ""
+requires = [ "skill_employment_cheap" ]
+baseCostMoney = 10
+costIncreaseFactor = 1.08
+workPower = 0.1
+
+[employee_cheap_2]
+name = "Paid Intern"
+description = ""
+requires = [ "skill_employment_cheap" ]
+baseCostMoney = 20
+costIncreaseFactor = 1.10
+workPower = 0.3
+
+
+# MANAGEMENT
+
+[employee_manager_1]
+name = "Manager"
+description = ""
+requires = [ "skill_employment_management" ]
+baseCostMoney = 5_000
+costIncreaseFactor = 1.22
+globalBonus = 0.01 # 1%
+workPower = 50
+
+[employee_manager_2]
+name = "CTO"
+description = ""
+requires = [ "skill_employment_management" ]
+baseCostMoney = 200_000
+costIncreaseFactor = 1.28
+globalBonus = 0.05 # 5%
+workPower = 20_000

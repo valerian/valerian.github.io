@@ -1,0 +1,79 @@
+# Input devices (Keyboards ...)
+
+[upgrade_input_1]
+category = "input"
+name = "Ligotech K2000 Keyboard"
+description = "The cheapest decent keyboard available"
+costMoney = 1e1
+
+tapWorkFactor = 2
+
+
+[upgrade_input_2]
+category = "input"
+name = "Kaytrunics E04201 Keyboard"
+description = "A sturdy keyboard clearly designed for programmers"
+requires = [ "upgrade_input_1" ]
+costMoney = 1e3
+
+tapWorkFactor = 2
+
+
+[upgrade_input_3]
+category = "input"
+name = "Macrozoft Ergonomic Keyboard"
+description = "With this your hands will hurt less at the end of the day"
+requires = [ "upgrade_input_2" ]
+costMoney = 1e5
+
+tapWorkFactor = 2
+
+
+[upgrade_input_4]
+category = "input"
+name = "LeKeyboard 5 Ultimate"
+description = "Real hackers don't need to look at their keyboard: this one has blank keys only"
+requires = [ "upgrade_input_3" ]
+costMoney = 1e8
+
+tapWorkFactor = 2
+
+
+[upgrade_input_5]
+category = "input"
+name = "Kinetix Dominance 3"
+description = "No need to ever move your hands ever again with this weirdly shaped custom made keyboard: everything is under your fingers now"
+requires = [ "upgrade_input_4" ]
+costMoney = 1e12
+
+tapWorkFactor = 2
+
+
+[upgrade_input_6]
+category = "input"
+name = "Uberhand Pro"
+description = "Instead of a traditional full keyboard, you get 10 very sensitive tiny joysticks, one for each finger, giving you total typing control"
+requires = [ "upgrade_input_5", "skill_input_unconventional" ]
+costMoney = 1e16
+
+tapWorkFactor = 4
+
+
+[upgrade_input_7]
+category = "input"
+name = "Mind reading helmet"
+description = "You just need to think what you want to type"
+requires = [ "upgrade_input_6" ]
+costMoney = 1e24
+
+tapWorkFactor = 2
+
+
+[upgrade_input_8]
+category = "input"
+name = "Neural direct input"
+description = "Your brain is directly connected to the terminal, this is the most efficient input method possible (for a regular human brain)"
+requires = [ "upgrade_input_7", "skill_cybernetics" ]
+costMoney = 1e28
+
+tapWorkFactor = 4

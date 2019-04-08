@@ -1,0 +1,149 @@
+# Skills that have more than one main attribute requirement
+
+# Special
+
+[skill_balance_1]
+category = "balance"
+name = "Balance"
+description = ""
+requiredIntelligence = 1
+requiredKnowledge = 1
+requiredDexterity = 1
+requiredConstitution = 1
+requiredWisdom = 1
+requiredCharisma = 1
+
+tapWorkFactor = 1.5
+taskSizeFactor = 2
+taskRewardFactor = 1.5
+
+
+[skill_balance_2]
+category = "balance"
+name = "Harmony"
+description = ""
+requiredIntelligence = 2
+requiredKnowledge = 2
+requiredDexterity = 2
+requiredConstitution = 2
+requiredWisdom = 2
+requiredCharisma = 2
+
+tapWorkFactor = 2
+taskSizeFactor = 2.5
+taskRewardFactor = 2
+
+
+[skill_employment_cheap]
+name = "Cheap employees"
+description = "Get access to cheaper employees"
+requiredCharisma = 4
+
+employeeCostFactor = 0.5
+
+[skill_employment_management]
+name = "Cheap employees"
+description = "Get access to cheaper employees"
+requiredCharisma = 5
+
+[skill_electronics]
+name = "Electronics"
+description = ""
+requiredWisdom = 4
+maximumCharisma = 0
+
+serverCostFactor = 0.5
+
+
+# Cha + Wis
+
+[skill_religious_leader]
+name = "Found your religion"
+description = "Your wisdom and charisma allows you to found your own religion"
+requiredWisdom = 4
+requiredCharisma = 4
+
+taskSizeFactor = 2
+taskRewardFactor = 2
+employeeWorkFactor = 2
+
+
+[skill_god_emperor]
+name = "God emperor"
+description = "You are considered as a living god and leader of all humanity"
+requiredWisdom = 6
+requiredCharisma = 6
+
+taskSizeFactor = 2
+taskRewardFactor = 2
+employeeWorkFactor = 2
+
+
+# Int + Dex + Con
+
+[skill_typing_dvorak]
+name = "DVORAK"
+description = "Type using the DVORAK layout, which is much more efficient than the obsolete QWERTY"
+requiredIntelligence = 2
+requiredDexterity = 2
+requiredConstitution = 2
+
+tapWorkFactor = 2
+softwareEfficiencyFactor = 1.5
+
+
+[skill_input_unconventional]
+name = "Unconventional input methods"
+description = "Can use input devices that require different input methods than traditional keyboards"
+requiredIntelligence = 3
+requiredDexterity = 3
+requiredConstitution = 3
+
+
+[skill_cybernetics]
+name = "Cybernetics"
+description = ""
+requiredIntelligence = 5
+requiredDexterity = 5
+requiredConstitution = 5
+
+
+# Kno + Int + Dex
+
+[skill_regex]
+name = "Regex Master"
+description = "Master of Regular Expressions"
+requiredKnowledge = 2
+requiredIntelligence = 2
+requiredDexterity = 2
+
+tapWorkFactor = 1.5
+softwareEfficiencyFactor = 2
+
+
+# Con + Kno + Int
+
+[skill_design_patterns]
+name = "Design Patterns"
+description = "Master programming design patterns"
+requiredConstitution = 2
+requiredKnowledge = 2
+requiredIntelligence = 2
+
+employeeWorkFactor = 1.5
+taskSizeFactor = 2
+taskRewardFactor = 2
+
+
+# Dex + Con + Kno
+
+[skill_sports]
+name = "Practice Sports"
+description = "You start to regularly practice some sports"
+requiredDexterity = 2
+requiredConstitution = 2
+requiredKnowledge = 2
+
+employeeWorkFactor = 2
+taskSizeFactor = 1.5
+taskRewardFactor = 1.5

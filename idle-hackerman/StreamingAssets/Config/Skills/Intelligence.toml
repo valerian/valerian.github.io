@@ -1,0 +1,75 @@
+[skill_editor_0]
+category = "editor"
+name = "Nano"
+description = "Still better than notepad"
+
+isAlreadyAcquired = true
+
+
+[skill_editor_1]
+category = "editor"
+name = "Tilde"
+description = "Has some features, and familiar CUA bindings"
+requires = [ "skill_editor_0" ]
+requiredIntelligence = 1
+
+tapWorkFactor = 2
+
+
+[skill_editor_2]
+category = "editor"
+name = "Vi"
+description = "A more efficient editor with a modal input system"
+requires = [ "skill_editor_1" ]
+requiredIntelligence = 2
+requiredDexterity = 1
+
+tapWorkFactor = 2
+
+
+[skill_editor_3]
+category = "editor"
+name = "Vim"
+description = "Like Vi, but improved! Also supports plugins"
+requires = [ "skill_editor_2" ]
+requiredIntelligence = 3
+requiredDexterity = 1
+requiredKnowledge = 1
+
+tapWorkFactor = 2
+
+
+[skill_editor_4]
+category = "editor"
+name = "Emacs"
+description = "Much more than an editor, and fully programmable"
+requires = [ "skill_editor_3" ]
+requiredIntelligence = 4
+requiredDexterity = 2
+requiredKnowledge = 1
+
+tapWorkFactor = 2
+
+
+[skill_editor_5]
+category = "editor"
+name = "Emacs with evil-mode"
+description = "The best of Emacs and Vim in a single editor"
+requires = [ "skill_editor_4" ]
+requiredIntelligence = 5
+requiredDexterity = 2
+requiredKnowledge = 2
+
+tapWorkFactor = 2
+
+
+[skill_editor_6]
+category = "editor"
+name = "Your own fork of Emacs"
+description = "You constantly program and improve your own editor"
+requires = [ "skill_editor_5" ]
+requiredIntelligence = 6
+requiredDexterity = 3
+requiredKnowledge = 2
+
+tapWorkFactor = 2

@@ -1,0 +1,76 @@
+[skill_typing_0]
+category = "typing"
+name = "Basic typing"
+description = "Basic usage of a keyboard, using one finger"
+
+isAlreadyAcquired = true
+
+
+[skill_typing_1]
+category = "typing"
+name = "Improved typing"
+description = "Type with more than one finger"
+requires = [ "skill_typing_0" ]
+requiredDexterity = 1
+
+tapWorkFactor = 2
+
+
+[skill_typing_2]
+category = "typing"
+name = "Good typing"
+description = "Type using all of your fingers"
+requires = [ "skill_typing_1" ]
+requiredDexterity = 2
+requiredIntelligence = 1
+
+tapWorkFactor = 2
+
+
+[skill_typing_3]
+category = "typing"
+name = "Fast typing"
+description = "You don't need to look at the keyboard anymore"
+requires = [ "skill_typing_2" ]
+requiredDexterity = 3
+requiredIntelligence = 1
+requiredConstitution = 1
+
+tapWorkFactor = 2
+
+
+[skill_typing_4]
+category = "typing"
+name = "Pro typing"
+description = "Type the proper way, with optimal fingers rest positions"
+costMoney = 1e8
+requires = [ "skill_typing_3" ]
+requiredDexterity = 4
+requiredIntelligence = 2
+requiredConstitution = 1
+
+tapWorkFactor = 2
+
+
+[skill_typing_5]
+category = "typing"
+name = "Advanced typing"
+description = "You went beyond regular computer usage, you figured out an advanced method of typing more adapted to it"
+requires = [ "skill_typing_4" ]
+requiredDexterity = 5
+requiredIntelligence = 2
+requiredConstitution = 2
+
+tapWorkFactor = 2
+
+
+[skill_typing_6]
+category = "typing"
+name = "Art of typing"
+description = "You reinvented typing as a form of martial art, which you mastered"
+requires = [ "skill_typing_4" ]
+requiredDexterity = 6
+requiredIntelligence = 3
+requiredConstitution = 2
+
+tapWorkFactor = 2

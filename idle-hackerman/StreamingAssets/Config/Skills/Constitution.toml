@@ -1,0 +1,72 @@
+[skill_health_1]
+category = "health"
+name = "Coffee"
+description = "The main fuel of a programmer, makes you able to handle bigger tasks"
+requiredConstitution = 1
+
+taskSizeFactor = 2.5
+taskRewardFactor = 2
+
+
+[skill_health_2]
+category = "health"
+name = "Healthier food"
+description = "Stop eating only junk food"
+requires = [ "skill_health_1" ]
+requiredConstitution = 2
+requiredKnowledge = 1
+
+taskSizeFactor = 2.5
+taskRewardFactor = 2
+
+
+[skill_health_3]
+category = "health"
+name = "Better posture"
+description = "Learn to keep your back straight, and position your chair, table, and screen properly"
+requires = [ "skill_health_2" ]
+requiredConstitution = 3
+requiredKnowledge = 1
+requiredDexterity = 1
+
+taskSizeFactor = 2.5
+taskRewardFactor = 2
+
+
+[skill_health_4]
+category = "health"
+requires = [ "skill_health_3" ]
+name = "Organic food"
+description = "Get all the vitamins you need for your body to function optimally"
+requiredConstitution = 4
+requiredKnowledge = 2
+requiredDexterity = 1
+
+taskSizeFactor = 2.5
+taskRewardFactor = 2
+
+
+[skill_health_5]
+category = "health"
+name = "Exercising"
+description = "Gives more oxygen to your brain"
+requires = [ "skill_health_4" ]
+requiredConstitution = 5
+requiredKnowledge = 2
+requiredDexterity = 2
+
+taskSizeFactor = 2.5
+taskRewardFactor = 2
+
+
+[skill_health_6]
+category = "health"
+name = "Standing desk"
+description = "Instead of sitting, you stand up, it keeps you focussed and healthy"
+requires = [ "skill_health_5" ]
+requiredConstitution = 6
+requiredKnowledge = 3
+requiredDexterity = 2
+
+taskSizeFactor = 2.5
+taskRewardFactor = 2

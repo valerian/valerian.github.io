@@ -1,0 +1,1804 @@
+static int
+mk_conf_addr(struct pci_bus *pbus, unsigned int device_fn, int where,
+       unsigned long *pci_addr, unsigned char *type1)
+{
+  unsigned long addr;
+  u8 bus = pbus->number;
+
+  DBG(("mk_conf_addr(bus=%d, dfn=0x%x, where=0x%x,"
+       " addr=0x%lx, type1=0x%x)\n",
+       bus, device_fn, where, pci_addr, type1));
+
+  if (bus == 0) {
+    int device = device_fn >> 3;
+
+    
+
+    if (device > 8) {
+      DBG(("mk_conf_addr: device (%d)>20, returning -1\n",
+           device));
+      return -1;
+    }
+
+    *type1 = 0;
+    addr = (0x0800L << device) | ((device_fn & 7) << 8) | (where);
+  } else {
+    
+    *type1 = 1;
+    addr = (bus << 16) | (device_fn << 8) | (where);
+  }
+  *pci_addr = addr;
+  DBG(("mk_conf_addr: returning pci_addr 0x%lx\n", addr));
+  return 0;
+}
+
+
+static unsigned int
+conf_read(unsigned long addr, unsigned char type1)
+{
+  unsigned int value, cpu, taken;
+  unsigned long t2_cfg = 0;
+
+  cpu = smp_processor_id();
+
+  DBG(("conf_read(addr=0x%lx, type1=%d)\n", addr, type1));
+
+  
+  if (type1) {
+    t2_cfg = *(vulp)T2_HAE_3 & ~0xc0000000UL;
+    *(vulp)T2_HAE_3 = 0x40000000UL | t2_cfg;
+    mb();
+  }
+  mb();
+  draina();
+
+  mcheck_expected(cpu) = 1;
+  mcheck_taken(cpu) = 0;
+  t2_mcheck_any_expected |= (1 << cpu);
+  mb();
+
+  
+  value = *(vuip)addr;
+  mb();
+  mb();  
+
+  
+  udelay(100);
+
+  if ((taken = mcheck_taken(cpu))) {
+    mcheck_taken(cpu) = 0;
+    t2_mcheck_last_taken |= (1 << cpu);
+    value = 0xffffffffU;
+    mb();
+  }
+  mcheck_expected(cpu) = 0;
+  t2_mcheck_any_expected = 0;
+  mb();
+
+  
+  if (type1) {
+    *(vulp)T2_HAE_3 = t2_cfg;
+    mb();
+  }
+
+  return value;
+}
+
+static void
+conf_write(unsigned long addr, unsigned int value, unsigned char type1)
+{
+  unsigned int cpu, taken;
+  unsigned long t2_cfg = 0;
+
+  cpu = smp_processor_id();
+
+  
+  if (type1) {
+    t2_cfg = *(vulp)T2_HAE_3 & ~0xc0000000UL;
+    *(vulp)T2_HAE_3 = t2_cfg | 0x40000000UL;
+    mb();
+  }
+  mb();
+  draina();
+
+  mcheck_expected(cpu) = 1;
+  mcheck_taken(cpu) = 0;
+  t2_mcheck_any_expected |= (1 << cpu);
+  mb();
+
+  
+  *(vuip)addr = value;
+  mb();
+  mb();  
+
+  
+  udelay(100);
+
+  if ((taken = mcheck_taken(cpu))) {
+    mcheck_taken(cpu) = 0;
+    t2_mcheck_last_taken |= (1 << cpu);
+    mb();
+  }
+  mcheck_expected(cpu) = 0;
+  t2_mcheck_any_expected = 0;
+  mb();
+
+  
+  if (type1) {
+    *(vulp)T2_HAE_3 = t2_cfg;
+    mb();
+  }
+}
+
+static int
+t2_read_config(struct pci_bus *bus, unsigned int devfn, int where,
+         int size, u32 *value)
+{
+  unsigned long addr, pci_addr;
+  unsigned char type1;
+  int shift;
+  long mask;
+
+  if (mk_conf_addr(bus, devfn, where, &pci_addr, &type1))
+    return PCIBIOS_DEVICE_NOT_FOUND;
+
+  mask = (size - 1) * 8;
+  shift = (where & 3) * 8;
+  addr = (pci_addr << 5) + mask + T2_CONF;
+  *value = conf_read(addr, type1) >> (shift);
+  return PCIBIOS_SUCCESSFUL;
+}
+
+static int
+t2_write_config(struct pci_bus *bus, unsigned int devfn, int where, int size,
+    u32 value)
+{
+  unsigned long addr, pci_addr;
+  unsigned char type1;
+  long mask;
+
+  if (mk_conf_addr(bus, devfn, where, &pci_addr, &type1))
+    return PCIBIOS_DEVICE_NOT_FOUND;
+
+  mask = (size - 1) * 8;
+  addr = (pci_addr << 5) + mask + T2_CONF;
+  conf_write(addr, value << ((where & 3) * 8), type1);
+  return PCIBIOS_SUCCESSFUL;
+}
+
+struct pci_ops t2_pci_ops =
+{
+  .read =    t2_read_config,
+  .write =  t2_write_config,
+};
+
+static void __init
+t2_direct_map_window1(unsigned long base, unsigned long length)
+{
+  unsigned long temp;
+
+  __direct_map_base = base;
+  __direct_map_size = length;
+
+  temp = (base & 0xfff00000UL) | ((base + length - 1) >> 20);
+  *(vulp)T2_WBASE1 = temp | 0x80000UL; 
+  temp = (length - 1) & 0xfff00000UL;
+  *(vulp)T2_WMASK1 = temp;
+  *(vulp)T2_TBASE1 = 0;
+
+#if DEBUG_PRINT_FINAL_SETTINGS
+  printk("%s: setting WBASE1=0x%lx WMASK1=0x%lx TBASE1=0x%lx\n",
+         __func__, *(vulp)T2_WBASE1, *(vulp)T2_WMASK1, *(vulp)T2_TBASE1);
+#endif
+}
+
+static void __init
+t2_sg_map_window2(struct pci_controller *hose,
+      unsigned long base,
+      unsigned long length)
+{
+  unsigned long temp;
+
+  
+  hose->sg_isa = iommu_arena_new(hose, base, length, SMP_CACHE_BYTES);
+  hose->sg_pci = NULL;
+
+  temp = (base & 0xfff00000UL) | ((base + length - 1) >> 20);
+  *(vulp)T2_WBASE2 = temp | 0xc0000UL; 
+  temp = (length - 1) & 0xfff00000UL;
+  *(vulp)T2_WMASK2 = temp;
+  *(vulp)T2_TBASE2 = virt_to_phys(hose->sg_isa->ptes) >> 1;
+  mb();
+
+  t2_pci_tbi(hose, 0, -1); 
+
+#if DEBUG_PRINT_FINAL_SETTINGS
+  printk("%s: setting WBASE2=0x%lx WMASK2=0x%lx TBASE2=0x%lx\n",
+         __func__, *(vulp)T2_WBASE2, *(vulp)T2_WMASK2, *(vulp)T2_TBASE2);
+#endif
+}
+
+static void __init
+t2_save_configuration(void)
+{
+#if DEBUG_PRINT_INITIAL_SETTINGS
+  printk("%s: HAE_1 was 0x%lx\n", __func__, srm_hae); 
+  printk("%s: HAE_2 was 0x%lx\n", __func__, *(vulp)T2_HAE_2);
+  printk("%s: HAE_3 was 0x%lx\n", __func__, *(vulp)T2_HAE_3);
+  printk("%s: HAE_4 was 0x%lx\n", __func__, *(vulp)T2_HAE_4);
+  printk("%s: HBASE was 0x%lx\n", __func__, *(vulp)T2_HBASE);
+
+  printk("%s: WBASE1=0x%lx WMASK1=0x%lx TBASE1=0x%lx\n", __func__,
+         *(vulp)T2_WBASE1, *(vulp)T2_WMASK1, *(vulp)T2_TBASE1);
+  printk("%s: WBASE2=0x%lx WMASK2=0x%lx TBASE2=0x%lx\n", __func__,
+         *(vulp)T2_WBASE2, *(vulp)T2_WMASK2, *(vulp)T2_TBASE2);
+#endif
+
+  
+  t2_saved_config.window[0].wbase = *(vulp)T2_WBASE1;
+  t2_saved_config.window[0].wmask = *(vulp)T2_WMASK1;
+  t2_saved_config.window[0].tbase = *(vulp)T2_TBASE1;
+  t2_saved_config.window[1].wbase = *(vulp)T2_WBASE2;
+  t2_saved_config.window[1].wmask = *(vulp)T2_WMASK2;
+  t2_saved_config.window[1].tbase = *(vulp)T2_TBASE2;
+
+  t2_saved_config.hae_1 = srm_hae; 
+  t2_saved_config.hae_2 = *(vulp)T2_HAE_2;
+  t2_saved_config.hae_3 = *(vulp)T2_HAE_3;
+  t2_saved_config.hae_4 = *(vulp)T2_HAE_4;
+  t2_saved_config.hbase = *(vulp)T2_HBASE;
+}
+
+void __init
+t2_init_arch(void)
+{
+  struct pci_controller *hose;
+  struct resource *hae_mem;
+  unsigned long temp;
+  unsigned int i;
+
+  for (i = 0; i < NR_CPUS; i++) {
+    mcheck_expected(i) = 0;
+    mcheck_taken(i) = 0;
+  }
+  t2_mcheck_any_expected = 0;
+  t2_mcheck_last_taken = 0;
+
+  
+  temp = *(vulp)T2_IOCSR;
+  if (!(temp & (0x1UL << 26))) {
+    printk("t2_init_arch: enabling SG TLB, IOCSR was 0x%lx\n",
+           temp);
+    *(vulp)T2_IOCSR = temp | (0x1UL << 26);
+    mb();
+    *(vulp)T2_IOCSR; 
+  }
+
+  t2_save_configuration();
+
+  
+  pci_isa_hose = hose = alloc_pci_controller();
+  hose->io_space = &ioport_resource;
+  hae_mem = alloc_resource();
+  hae_mem->start = 0;
+  hae_mem->end = T2_MEM_R1_MASK;
+  hae_mem->name = pci_hae0_name;
+  if (request_resource(&iomem_resource, hae_mem) < 0)
+    printk(KERN_ERR "Failed to request HAE_MEM\n");
+  hose->mem_space = hae_mem;
+  hose->index = 0;
+
+  hose->sparse_mem_base = T2_SPARSE_MEM - IDENT_ADDR;
+  hose->dense_mem_base = T2_DENSE_MEM - IDENT_ADDR;
+  hose->sparse_io_base = T2_IO - IDENT_ADDR;
+  hose->dense_io_base = 0;
+
+  
+
+  t2_direct_map_window1(T2_DIRECTMAP_START, T2_DIRECTMAP_LENGTH);
+
+  
+  t2_sg_map_window2(hose, T2_ISA_SG_START, T2_ISA_SG_LENGTH);
+
+  *(vulp)T2_HBASE = 0x0; 
+
+  
+  *(vulp)T2_HAE_1 = 0; mb(); 
+  *(vulp)T2_HAE_2 = 0; mb(); 
+  *(vulp)T2_HAE_3 = 0; mb(); 
+
+  
+  *(vulp)T2_HAE_4 = 0; mb();
+}
+
+void
+t2_kill_arch(int mode)
+{
+  
+  *(vulp)T2_WBASE1 = t2_saved_config.window[0].wbase;
+  *(vulp)T2_WMASK1 = t2_saved_config.window[0].wmask;
+  *(vulp)T2_TBASE1 = t2_saved_config.window[0].tbase;
+  *(vulp)T2_WBASE2 = t2_saved_config.window[1].wbase;
+  *(vulp)T2_WMASK2 = t2_saved_config.window[1].wmask;
+  *(vulp)T2_TBASE2 = t2_saved_config.window[1].tbase;
+  mb();
+
+  *(vulp)T2_HAE_1 = srm_hae;
+  *(vulp)T2_HAE_2 = t2_saved_config.hae_2;
+  *(vulp)T2_HAE_3 = t2_saved_config.hae_3;
+  *(vulp)T2_HAE_4 = t2_saved_config.hae_4;
+  *(vulp)T2_HBASE = t2_saved_config.hbase;
+  mb();
+  *(vulp)T2_HBASE; 
+}
+
+void
+t2_pci_tbi(struct pci_controller *hose, dma_addr_t start, dma_addr_t end)
+{
+  unsigned long t2_iocsr;
+
+  t2_iocsr = *(vulp)T2_IOCSR;
+
+  
+  *(vulp)T2_IOCSR = t2_iocsr | (0x1UL << 28);
+  mb();
+  *(vulp)T2_IOCSR; 
+
+  
+  *(vulp)T2_IOCSR = t2_iocsr & ~(0x1UL << 28);
+  mb();
+  *(vulp)T2_IOCSR; 
+}
+
+#define SIC_SEIC (1UL << 33)    
+
+static void
+t2_clear_errors(int cpu)
+{
+  struct sable_cpu_csr *cpu_regs;
+
+  cpu_regs = (struct sable_cpu_csr *)T2_CPUn_BASE(cpu);
+
+  cpu_regs->sic &= ~SIC_SEIC;
+
+  
+  cpu_regs->bcce |= cpu_regs->bcce;
+  cpu_regs->cbe  |= cpu_regs->cbe;
+  cpu_regs->bcue |= cpu_regs->bcue;
+  cpu_regs->dter |= cpu_regs->dter;
+
+  *(vulp)T2_CERR1 |= *(vulp)T2_CERR1;
+  *(vulp)T2_PERR1 |= *(vulp)T2_PERR1;
+
+  mb();
+  mb();  
+}
+
+
+void
+t2_machine_check(unsigned long vector, unsigned long la_ptr)
+{
+  int cpu = smp_processor_id();
+#ifdef CONFIG_VERBOSE_MCHECK
+  struct el_common *mchk_header = (struct el_common *)la_ptr;
+#endif
+
+  
+  mb();
+  mb();  
+  draina();
+  t2_clear_errors(cpu);
+
+  
+  wrmces(0x7);
+  mb();
+
+  
+  if (!mcheck_expected(cpu) && t2_mcheck_any_expected) {
+    
+#ifdef CONFIG_VERBOSE_MCHECK
+    if (alpha_verbose_mcheck > 1) {
+      printk("t2_machine_check(cpu%d): any_expected 0x%x -"
+             " (assumed) spurious -"
+             " code 0x%x\n", cpu, t2_mcheck_any_expected,
+             (unsigned int)mchk_header->code);
+    }
+#endif
+    return;
+  }
+
+  if (!mcheck_expected(cpu) && !t2_mcheck_any_expected) {
+    if (t2_mcheck_last_taken & (1 << cpu)) {
+#ifdef CONFIG_VERBOSE_MCHECK
+        if (alpha_verbose_mcheck > 1) {
+      printk("t2_machine_check(cpu%d): last_taken 0x%x - "
+             "unexpected mcheck - code 0x%x\n",
+             cpu, t2_mcheck_last_taken,
+             (unsigned int)mchk_header->code);
+        }
+#endif
+        t2_mcheck_last_taken = 0;
+        mb();
+        return;
+    } else {
+      t2_mcheck_last_taken = 0;
+      mb();
+    }
+  }
+
+#ifdef CONFIG_VERBOSE_MCHECK
+  if (alpha_verbose_mcheck > 1) {
+    printk("%s t2_mcheck(cpu%d): last_taken 0x%x - "
+           "any_expected 0x%x - code 0x%x\n",
+           (mcheck_expected(cpu) ? "EX" : "UN"), cpu,
+           t2_mcheck_last_taken, t2_mcheck_any_expected,
+           (unsigned int)mchk_header->code);
+  }
+#endif
+
+  process_mcheck_info(vector, la_ptr, "T2", mcheck_expected(cpu));
+}
+// SPDX-License-Identifier: GPL-2.0
+
+
+#define __EXTERN_INLINE inline
+#include <asm/io.h>
+#include <asm/core_titan.h>
+#undef __EXTERN_INLINE
+
+
+
+
+struct
+{
+  unsigned long wsba[4];
+  unsigned long wsm[4];
+  unsigned long tba[4];
+} saved_config[4] __attribute__((common));
+
+
+static int titan_pchip1_present;
+
+
+
+#define DEBUG_CONFIG 0
+
+#if DEBUG_CONFIG
+# define DBG_CFG(args)  printk args
+#else
+# define DBG_CFG(args)
+#endif
+
+
+
+static inline volatile unsigned long *
+mk_tig_addr(int offset)
+{
+  return (volatile unsigned long *)(TITAN_TIG_SPACE + (offset << 6));
+}
+
+static inline u8
+titan_read_tig(int offset, u8 value)
+{
+  volatile unsigned long *tig_addr = mk_tig_addr(offset);
+  return (u8)(*tig_addr & 0xff);
+}
+
+static inline void
+titan_write_tig(int offset, u8 value)
+{
+  volatile unsigned long *tig_addr = mk_tig_addr(offset);
+  *tig_addr = (unsigned long)value;
+}
+
+
+
+
+static int
+mk_conf_addr(struct pci_bus *pbus, unsigned int device_fn, int where,
+       unsigned long *pci_addr, unsigned char *type1)
+{
+  struct pci_controller *hose = pbus->sysdata;
+  unsigned long addr;
+  u8 bus = pbus->number;
+
+  DBG_CFG(("mk_conf_addr(bus=%d ,device_fn=0x%x, where=0x%x, "
+     "pci_addr=0x%p, type1=0x%p)\n",
+     bus, device_fn, where, pci_addr, type1));
+
+  if (!pbus->parent) 
+    bus = 0;
+        *type1 = (bus != 0);
+
+        addr = (bus << 16) | (device_fn << 8) | where;
+  addr |= hose->config_space_base;
+
+  *pci_addr = addr;
+  DBG_CFG(("mk_conf_addr: returning pci_addr 0x%lx\n", addr));
+  return 0;
+}
+
+static int
+titan_read_config(struct pci_bus *bus, unsigned int devfn, int where,
+      int size, u32 *value)
+{
+  unsigned long addr;
+  unsigned char type1;
+
+  if (mk_conf_addr(bus, devfn, where, &addr, &type1))
+    return PCIBIOS_DEVICE_NOT_FOUND;
+
+  switch (size) {
+  case 1:
+    *value = __kernel_ldbu(*(vucp)addr);
+    break;
+  case 2:
+    *value = __kernel_ldwu(*(vusp)addr);
+    break;
+  case 4:
+    *value = *(vuip)addr;
+    break;
+  }
+
+  return PCIBIOS_SUCCESSFUL;
+}
+
+static int
+titan_write_config(struct pci_bus *bus, unsigned int devfn, int where,
+       int size, u32 value)
+{
+  unsigned long addr;
+  unsigned char type1;
+
+  if (mk_conf_addr(bus, devfn, where, &addr, &type1))
+    return PCIBIOS_DEVICE_NOT_FOUND;
+
+  switch (size) {
+  case 1:
+    __kernel_stb(value, *(vucp)addr);
+    mb();
+    __kernel_ldbu(*(vucp)addr);
+    break;
+  case 2:
+    __kernel_stw(value, *(vusp)addr);
+    mb();
+    __kernel_ldwu(*(vusp)addr);
+    break;
+  case 4:
+    *(vuip)addr = value;
+    mb();
+    *(vuip)addr;
+    break;
+  }
+
+  return PCIBIOS_SUCCESSFUL;
+}
+
+struct pci_ops titan_pci_ops =
+{
+  .read =    titan_read_config,
+  .write =  titan_write_config,
+};
+
+
+void
+titan_pci_tbi(struct pci_controller *hose, dma_addr_t start, dma_addr_t end)
+{
+  titan_pachip *pachip =
+    (hose->index & 1) ? TITAN_pachip1 : TITAN_pachip0;
+  titan_pachip_port *port;
+  volatile unsigned long *csr;
+  unsigned long value;
+
+  
+  port = &pachip->g_port;
+  if (hose->index & 2)
+    port = &pachip->a_port;
+
+  
+  csr = &port->port_specific.g.gtlbia.csr;
+  if (((start ^ end) & 0xffff0000) == 0)
+    csr = &port->port_specific.g.gtlbiv.csr;
+
+  
+  value = (start & 0xffff0000) >> 12;
+
+  wmb();
+  *csr = value;
+  mb();
+  *csr;
+}
+
+static int
+titan_query_agp(titan_pachip_port *port)
+{
+  union TPAchipPCTL pctl;
+
+  
+  pctl.pctl_q_whole = port->pctl.csr;
+
+  return pctl.pctl_r_bits.apctl_v_agp_present;
+
+}
+
+static void __init
+titan_init_one_pachip_port(titan_pachip_port *port, int index)
+{
+  struct pci_controller *hose;
+
+  hose = alloc_pci_controller();
+  if (index == 0)
+    pci_isa_hose = hose;
+  hose->io_space = alloc_resource();
+  hose->mem_space = alloc_resource();
+
+  
+  hose->sparse_mem_base = 0;
+  hose->sparse_io_base = 0;
+  hose->dense_mem_base
+    = (TITAN_MEM(index) & 0xffffffffffUL) | 0x80000000000UL;
+  hose->dense_io_base
+    = (TITAN_IO(index) & 0xffffffffffUL) | 0x80000000000UL;
+
+  hose->config_space_base = TITAN_CONF(index);
+  hose->index = index;
+
+  hose->io_space->start = TITAN_IO(index) - TITAN_IO_BIAS;
+  hose->io_space->end = hose->io_space->start + TITAN_IO_SPACE - 1;
+  hose->io_space->name = pci_io_names[index];
+  hose->io_space->flags = IORESOURCE_IO;
+
+  hose->mem_space->start = TITAN_MEM(index) - TITAN_MEM_BIAS;
+  hose->mem_space->end = hose->mem_space->start + 0xffffffff;
+  hose->mem_space->name = pci_mem_names[index];
+  hose->mem_space->flags = IORESOURCE_MEM;
+
+  if (request_resource(&ioport_resource, hose->io_space) < 0)
+    printk(KERN_ERR "Failed to request IO on hose %d\n", index);
+  if (request_resource(&iomem_resource, hose->mem_space) < 0)
+    printk(KERN_ERR "Failed to request MEM on hose %d\n", index);
+
+  
+  saved_config[index].wsba[0] = port->wsba[0].csr;
+  saved_config[index].wsm[0]  = port->wsm[0].csr;
+  saved_config[index].tba[0]  = port->tba[0].csr;
+
+  saved_config[index].wsba[1] = port->wsba[1].csr;
+  saved_config[index].wsm[1]  = port->wsm[1].csr;
+  saved_config[index].tba[1]  = port->tba[1].csr;
+
+  saved_config[index].wsba[2] = port->wsba[2].csr;
+  saved_config[index].wsm[2]  = port->wsm[2].csr;
+  saved_config[index].tba[2]  = port->tba[2].csr;
+
+  saved_config[index].wsba[3] = port->wsba[3].csr;
+  saved_config[index].wsm[3]  = port->wsm[3].csr;
+  saved_config[index].tba[3]  = port->tba[3].csr;
+
+  
+  hose->sg_isa = iommu_arena_new(hose, 0x00800000, 0x00800000,
+               SMP_CACHE_BYTES);
+  hose->sg_isa->align_entry = 8; 
+
+  hose->sg_pci = iommu_arena_new(hose, 0xc0000000, 0x40000000,
+               SMP_CACHE_BYTES);
+  hose->sg_pci->align_entry = 4; 
+
+  port->wsba[0].csr = hose->sg_isa->dma_base | 3;
+  port->wsm[0].csr  = (hose->sg_isa->size - 1) & 0xfff00000;
+  port->tba[0].csr  = virt_to_phys(hose->sg_isa->ptes);
+
+  port->wsba[1].csr = __direct_map_base | 1;
+  port->wsm[1].csr  = (__direct_map_size - 1) & 0xfff00000;
+  port->tba[1].csr  = 0;
+
+  port->wsba[2].csr = hose->sg_pci->dma_base | 3;
+  port->wsm[2].csr  = (hose->sg_pci->size - 1) & 0xfff00000;
+  port->tba[2].csr  = virt_to_phys(hose->sg_pci->ptes);
+
+  port->wsba[3].csr = 0;
+
+  
+  port->pctl.csr |= pctl_m_mwin;
+
+  
+  if (titan_query_agp(port))
+    port->port_specific.a.agplastwr.csr = __direct_map_base;
+
+  titan_pci_tbi(hose, 0, -1);
+}
+
+static void __init
+titan_init_pachips(titan_pachip *pachip0, titan_pachip *pachip1)
+{
+  titan_pchip1_present = TITAN_cchip->csc.csr & 1L<<14;
+
+  
+  titan_init_one_pachip_port(&pachip0->g_port, 0);  
+  if (titan_pchip1_present)
+    titan_init_one_pachip_port(&pachip1->g_port, 1);
+  titan_init_one_pachip_port(&pachip0->a_port, 2);  
+  if (titan_pchip1_present)
+    titan_init_one_pachip_port(&pachip1->a_port, 3);
+}
+
+void __init
+titan_init_arch(void)
+{
+#if 0
+  printk("%s: titan_init_arch()\n", __func__);
+  printk("%s: CChip registers:\n", __func__);
+  printk("%s: CSR_CSC 0x%lx\n", __func__, TITAN_cchip->csc.csr);
+  printk("%s: CSR_MTR 0x%lx\n", __func__, TITAN_cchip->mtr.csr);
+  printk("%s: CSR_MISC 0x%lx\n", __func__, TITAN_cchip->misc.csr);
+  printk("%s: CSR_DIM0 0x%lx\n", __func__, TITAN_cchip->dim0.csr);
+  printk("%s: CSR_DIM1 0x%lx\n", __func__, TITAN_cchip->dim1.csr);
+  printk("%s: CSR_DIR0 0x%lx\n", __func__, TITAN_cchip->dir0.csr);
+  printk("%s: CSR_DIR1 0x%lx\n", __func__, TITAN_cchip->dir1.csr);
+  printk("%s: CSR_DRIR 0x%lx\n", __func__, TITAN_cchip->drir.csr);
+
+  printk("%s: DChip registers:\n", __func__);
+  printk("%s: CSR_DSC 0x%lx\n", __func__, TITAN_dchip->dsc.csr);
+  printk("%s: CSR_STR 0x%lx\n", __func__, TITAN_dchip->str.csr);
+  printk("%s: CSR_DREV 0x%lx\n", __func__, TITAN_dchip->drev.csr);
+#endif
+
+  boot_cpuid = __hard_smp_processor_id();
+
+  
+  ioport_resource.end = ~0UL;
+  iomem_resource.end = ~0UL;
+
+  
+  __direct_map_base = 0x80000000;
+  __direct_map_size = 0x40000000;
+
+  
+  titan_init_pachips(TITAN_pachip0, TITAN_pachip1);
+
+  
+  find_console_vga_hose();
+}
+
+static void
+titan_kill_one_pachip_port(titan_pachip_port *port, int index)
+{
+  port->wsba[0].csr = saved_config[index].wsba[0];
+  port->wsm[0].csr  = saved_config[index].wsm[0];
+  port->tba[0].csr  = saved_config[index].tba[0];
+
+  port->wsba[1].csr = saved_config[index].wsba[1];
+  port->wsm[1].csr  = saved_config[index].wsm[1];
+  port->tba[1].csr  = saved_config[index].tba[1];
+
+  port->wsba[2].csr = saved_config[index].wsba[2];
+  port->wsm[2].csr  = saved_config[index].wsm[2];
+  port->tba[2].csr  = saved_config[index].tba[2];
+
+  port->wsba[3].csr = saved_config[index].wsba[3];
+  port->wsm[3].csr  = saved_config[index].wsm[3];
+  port->tba[3].csr  = saved_config[index].tba[3];
+}
+
+static void
+titan_kill_pachips(titan_pachip *pachip0, titan_pachip *pachip1)
+{
+  if (titan_pchip1_present) {
+    titan_kill_one_pachip_port(&pachip1->g_port, 1);
+    titan_kill_one_pachip_port(&pachip1->a_port, 3);
+  }
+  titan_kill_one_pachip_port(&pachip0->g_port, 0);
+  titan_kill_one_pachip_port(&pachip0->a_port, 2);
+}
+
+void
+titan_kill_arch(int mode)
+{
+  titan_kill_pachips(TITAN_pachip0, TITAN_pachip1);
+}
+
+
+
+
+void __iomem *
+titan_ioportmap(unsigned long addr)
+{
+  FIXUP_IOADDR_VGA(addr);
+  return (void __iomem *)(addr + TITAN_IO_BIAS);
+}
+
+
+void __iomem *
+titan_ioremap(unsigned long addr, unsigned long size)
+{
+  int h = (addr & TITAN_HOSE_MASK) >> TITAN_HOSE_SHIFT;
+  unsigned long baddr = addr & ~TITAN_HOSE_MASK;
+  unsigned long last = baddr + size - 1;
+  struct pci_controller *hose;
+  struct vm_struct *area;
+  unsigned long vaddr;
+  unsigned long *ptes;
+  unsigned long pfn;
+
+#ifdef CONFIG_VGA_HOSE
+  
+  if (pci_vga_hose && __is_mem_vga(addr)) {
+    h = pci_vga_hose->index;
+    addr += pci_vga_hose->mem_space->start;
+  }
+#endif
+
+  
+  for (hose = hose_head; hose; hose = hose->next)
+    if (hose->index == h)
+      break;
+  if (!hose)
+    return NULL;
+
+  
+  if ((baddr >= __direct_map_base) &&
+      ((baddr + size - 1) < __direct_map_base + __direct_map_size)) {
+    vaddr = addr - __direct_map_base + TITAN_MEM_BIAS;
+    return (void __iomem *) vaddr;
+  }
+
+  
+  if (hose->sg_pci &&
+      baddr >= (unsigned long)hose->sg_pci->dma_base &&
+      last < (unsigned long)hose->sg_pci->dma_base + hose->sg_pci->size){
+
+    
+    baddr -= hose->sg_pci->dma_base;
+    last -= hose->sg_pci->dma_base;
+    baddr &= PAGE_MASK;
+    size = PAGE_ALIGN(last) - baddr;
+
+    
+    area = get_vm_area(size, VM_IOREMAP);
+    if (!area) {
+      printk("ioremap failed... no vm_area...\n");
+      return NULL;
+    }
+
+    ptes = hose->sg_pci->ptes;
+    for (vaddr = (unsigned long)area->addr;
+        baddr <= last;
+        baddr += PAGE_SIZE, vaddr += PAGE_SIZE) {
+      pfn = ptes[baddr >> PAGE_SHIFT];
+      if (!(pfn & 1)) {
+        printk("ioremap failed... pte not valid...\n");
+        vfree(area->addr);
+        return NULL;
+      }
+      pfn >>= 1;  
+
+      if (__alpha_remap_area_pages(vaddr,
+                 pfn << PAGE_SHIFT,
+                 PAGE_SIZE, 0)) {
+        printk("FAILED to remap_area_pages...\n");
+        vfree(area->addr);
+        return NULL;
+      }
+    }
+
+    flush_tlb_all();
+
+    vaddr = (unsigned long)area->addr + (addr & ~PAGE_MASK);
+    return (void __iomem *) vaddr;
+  }
+
+  
+  return (void __iomem *)(addr + TITAN_MEM_BIAS);
+}
+
+void
+titan_iounmap(volatile void __iomem *xaddr)
+{
+  unsigned long addr = (unsigned long) xaddr;
+  if (addr >= VMALLOC_START)
+    vfree((void *)(PAGE_MASK & addr));
+}
+
+int
+titan_is_mmio(const volatile void __iomem *xaddr)
+{
+  unsigned long addr = (unsigned long) xaddr;
+
+  if (addr >= VMALLOC_START)
+    return 1;
+  else
+    return (addr & 0x100000000UL) == 0;
+}
+
+#ifndef CONFIG_ALPHA_GENERIC
+EXPORT_SYMBOL(titan_ioportmap);
+EXPORT_SYMBOL(titan_ioremap);
+EXPORT_SYMBOL(titan_iounmap);
+EXPORT_SYMBOL(titan_is_mmio);
+#endif
+
+
+
+struct titan_agp_aperture {
+  struct pci_iommu_arena *arena;
+  long pg_start;
+  long pg_count;
+};
+
+static int
+titan_agp_setup(alpha_agp_info *agp)
+{
+  struct titan_agp_aperture *aper;
+
+  if (!alpha_agpgart_size)
+    return -ENOMEM;
+
+  aper = kmalloc(sizeof(struct titan_agp_aperture), GFP_KERNEL);
+  if (aper == NULL)
+    return -ENOMEM;
+
+  aper->arena = agp->hose->sg_pci;
+  aper->pg_count = alpha_agpgart_size / PAGE_SIZE;
+  aper->pg_start = iommu_reserve(aper->arena, aper->pg_count,
+               aper->pg_count - 1);
+  if (aper->pg_start < 0) {
+    printk(KERN_ERR "Failed to reserve AGP memory\n");
+    kfree(aper);
+    return -ENOMEM;
+  }
+
+  agp->aperture.bus_base =
+    aper->arena->dma_base + aper->pg_start * PAGE_SIZE;
+  agp->aperture.size = aper->pg_count * PAGE_SIZE;
+  agp->aperture.sysdata = aper;
+
+  return 0;
+}
+
+static void
+titan_agp_cleanup(alpha_agp_info *agp)
+{
+  struct titan_agp_aperture *aper = agp->aperture.sysdata;
+  int status;
+
+  status = iommu_release(aper->arena, aper->pg_start, aper->pg_count);
+  if (status == -EBUSY) {
+    printk(KERN_WARNING
+           "Attempted to release bound AGP memory - unbinding\n");
+    iommu_unbind(aper->arena, aper->pg_start, aper->pg_count);
+    status = iommu_release(aper->arena, aper->pg_start,
+               aper->pg_count);
+  }
+  if (status < 0)
+    printk(KERN_ERR "Failed to release AGP memory\n");
+
+  kfree(aper);
+  kfree(agp);
+}
+
+static int
+titan_agp_configure(alpha_agp_info *agp)
+{
+  union TPAchipPCTL pctl;
+  titan_pachip_port *port = agp->private;
+  pctl.pctl_q_whole = port->pctl.csr;
+
+  
+  pctl.pctl_r_bits.apctl_v_agp_sba_en = agp->mode.bits.sba;
+
+  
+  pctl.pctl_r_bits.apctl_v_agp_rate = 0;    
+  if (agp->mode.bits.rate & 2)
+    pctl.pctl_r_bits.apctl_v_agp_rate = 1;  
+#if 0
+  if (agp->mode.bits.rate & 4)
+    pctl.pctl_r_bits.apctl_v_agp_rate = 2;  
+#endif
+
+  
+  pctl.pctl_r_bits.apctl_v_agp_hp_rd = 2;
+  pctl.pctl_r_bits.apctl_v_agp_lp_rd = 7;
+
+  
+  pctl.pctl_r_bits.apctl_v_agp_en = agp->mode.bits.enable;
+
+  
+  printk("Enabling AGP: %dX%s\n",
+         1 << pctl.pctl_r_bits.apctl_v_agp_rate,
+         pctl.pctl_r_bits.apctl_v_agp_sba_en ? " - SBA" : "");
+
+  
+  port->pctl.csr = pctl.pctl_q_whole;
+
+  
+  udelay(100);
+
+  return 0;
+}
+
+static int
+titan_agp_bind_memory(alpha_agp_info *agp, off_t pg_start, struct agp_memory *mem)
+{
+  struct titan_agp_aperture *aper = agp->aperture.sysdata;
+  return iommu_bind(aper->arena, aper->pg_start + pg_start,
+        mem->page_count, mem->pages);
+}
+
+static int
+titan_agp_unbind_memory(alpha_agp_info *agp, off_t pg_start, struct agp_memory *mem)
+{
+  struct titan_agp_aperture *aper = agp->aperture.sysdata;
+  return iommu_unbind(aper->arena, aper->pg_start + pg_start,
+          mem->page_count);
+}
+
+static unsigned long
+titan_agp_translate(alpha_agp_info *agp, dma_addr_t addr)
+{
+  struct titan_agp_aperture *aper = agp->aperture.sysdata;
+  unsigned long baddr = addr - aper->arena->dma_base;
+  unsigned long pte;
+
+  if (addr < agp->aperture.bus_base ||
+      addr >= agp->aperture.bus_base + agp->aperture.size) {
+    printk("%s: addr out of range\n", __func__);
+    return -EINVAL;
+  }
+
+  pte = aper->arena->ptes[baddr >> PAGE_SHIFT];
+  if (!(pte & 1)) {
+    printk("%s: pte not valid\n", __func__);
+    return -EINVAL;
+  }
+
+  return (pte >> 1) << PAGE_SHIFT;
+}
+
+struct alpha_agp_ops titan_agp_ops =
+{
+  .setup    = titan_agp_setup,
+  .cleanup  = titan_agp_cleanup,
+  .configure  = titan_agp_configure,
+  .bind    = titan_agp_bind_memory,
+  .unbind    = titan_agp_unbind_memory,
+  .translate  = titan_agp_translate
+};
+
+alpha_agp_info *
+titan_agp_info(void)
+{
+  alpha_agp_info *agp;
+  struct pci_controller *hose;
+  titan_pachip_port *port;
+  int hosenum = -1;
+  union TPAchipPCTL pctl;
+
+  
+  port = &TITAN_pachip0->a_port;
+  if (titan_query_agp(port))
+    hosenum = 2;
+  if (hosenum < 0 &&
+      titan_pchip1_present &&
+      titan_query_agp(port = &TITAN_pachip1->a_port))
+    hosenum = 3;
+
+  
+  for (hose = hose_head; hose; hose = hose->next)
+    if (hose->index == hosenum)
+      break;
+
+  if (!hose || !hose->sg_pci)
+    return NULL;
+
+  
+  agp = kmalloc(sizeof(*agp), GFP_KERNEL);
+  if (!agp)
+    return NULL;
+
+  
+  agp->hose = hose;
+  agp->private = port;
+  agp->ops = &titan_agp_ops;
+
+  
+  agp->aperture.bus_base = 0;
+  agp->aperture.size = 0;
+  agp->aperture.sysdata = NULL;
+
+  
+  agp->capability.lw = 0;
+  agp->capability.bits.rate = 3;   
+  agp->capability.bits.sba = 1;
+  agp->capability.bits.rq = 7;  
+
+  
+  pctl.pctl_q_whole = port->pctl.csr;
+  agp->mode.lw = 0;
+  agp->mode.bits.rate = 1 << pctl.pctl_r_bits.apctl_v_agp_rate;
+  agp->mode.bits.sba = pctl.pctl_r_bits.apctl_v_agp_sba_en;
+  agp->mode.bits.rq = 7;  
+  agp->mode.bits.enable = pctl.pctl_r_bits.apctl_v_agp_en;
+
+  return agp;
+}
+// SPDX-License-Identifier: GPL-2.0
+
+
+#define __EXTERN_INLINE inline
+#include <asm/io.h>
+#include <asm/core_tsunami.h>
+#undef __EXTERN_INLINE
+
+
+
+
+struct
+{
+  unsigned long wsba[4];
+  unsigned long wsm[4];
+  unsigned long tba[4];
+} saved_config[2] __attribute__((common));
+
+
+
+
+
+#define DEBUG_CONFIG 0
+
+#if DEBUG_CONFIG
+# define DBG_CFG(args)  printk args
+#else
+# define DBG_CFG(args)
+#endif
+
+
+
+
+static int
+mk_conf_addr(struct pci_bus *pbus, unsigned int device_fn, int where,
+       unsigned long *pci_addr, unsigned char *type1)
+{
+  struct pci_controller *hose = pbus->sysdata;
+  unsigned long addr;
+  u8 bus = pbus->number;
+
+  DBG_CFG(("mk_conf_addr(bus=%d ,device_fn=0x%x, where=0x%x, "
+     "pci_addr=0x%p, type1=0x%p)\n",
+     bus, device_fn, where, pci_addr, type1));
+
+  if (!pbus->parent) 
+    bus = 0;
+  *type1 = (bus != 0);
+
+  addr = (bus << 16) | (device_fn << 8) | where;
+  addr |= hose->config_space_base;
+
+  *pci_addr = addr;
+  DBG_CFG(("mk_conf_addr: returning pci_addr 0x%lx\n", addr));
+  return 0;
+}
+
+static int
+tsunami_read_config(struct pci_bus *bus, unsigned int devfn, int where,
+        int size, u32 *value)
+{
+  unsigned long addr;
+  unsigned char type1;
+
+  if (mk_conf_addr(bus, devfn, where, &addr, &type1))
+    return PCIBIOS_DEVICE_NOT_FOUND;
+
+  switch (size) {
+  case 1:
+    *value = __kernel_ldbu(*(vucp)addr);
+    break;
+  case 2:
+    *value = __kernel_ldwu(*(vusp)addr);
+    break;
+  case 4:
+    *value = *(vuip)addr;
+    break;
+  }
+
+  return PCIBIOS_SUCCESSFUL;
+}
+
+static int
+tsunami_write_config(struct pci_bus *bus, unsigned int devfn, int where,
+         int size, u32 value)
+{
+  unsigned long addr;
+  unsigned char type1;
+
+  if (mk_conf_addr(bus, devfn, where, &addr, &type1))
+    return PCIBIOS_DEVICE_NOT_FOUND;
+
+  switch (size) {
+  case 1:
+    __kernel_stb(value, *(vucp)addr);
+    mb();
+    __kernel_ldbu(*(vucp)addr);
+    break;
+  case 2:
+    __kernel_stw(value, *(vusp)addr);
+    mb();
+    __kernel_ldwu(*(vusp)addr);
+    break;
+  case 4:
+    *(vuip)addr = value;
+    mb();
+    *(vuip)addr;
+    break;
+  }
+
+  return PCIBIOS_SUCCESSFUL;
+}
+
+struct pci_ops tsunami_pci_ops =
+{
+  .read =    tsunami_read_config,
+  .write =   tsunami_write_config,
+};
+
+void
+tsunami_pci_tbi(struct pci_controller *hose, dma_addr_t start, dma_addr_t end)
+{
+  tsunami_pchip *pchip = hose->index ? TSUNAMI_pchip1 : TSUNAMI_pchip0;
+  volatile unsigned long *csr;
+  unsigned long value;
+
+  
+  csr = &pchip->tlbia.csr;
+  if (((start ^ end) & 0xffff0000) == 0)
+    csr = &pchip->tlbiv.csr;
+
+  
+  value = (start & 0xffff0000) >> 12;
+
+  *csr = value;
+  mb();
+  *csr;
+}
+
+#ifdef NXM_MACHINE_CHECKS_ON_TSUNAMI
+static long __init
+tsunami_probe_read(volatile unsigned long *vaddr)
+{
+  long dont_care, probe_result;
+  int cpu = smp_processor_id();
+  int s = swpipl(IPL_MCHECK - 1);
+
+  mcheck_taken(cpu) = 0;
+  mcheck_expected(cpu) = 1;
+  mb();
+  dont_care = *vaddr;
+  draina();
+  mcheck_expected(cpu) = 0;
+  probe_result = !mcheck_taken(cpu);
+  mcheck_taken(cpu) = 0;
+  setipl(s);
+
+  printk("dont_care == 0x%lx\n", dont_care);
+
+  return probe_result;
+}
+
+static long __init
+tsunami_probe_write(volatile unsigned long *vaddr)
+{
+  long true_contents, probe_result = 1;
+
+  TSUNAMI_cchip->misc.csr |= (1L << 28); 
+  true_contents = *vaddr;
+  *vaddr = 0;
+  draina();
+  if (TSUNAMI_cchip->misc.csr & (1L << 28)) {
+    int source = (TSUNAMI_cchip->misc.csr >> 29) & 7;
+    TSUNAMI_cchip->misc.csr |= (1L << 28); 
+    probe_result = 0;
+    printk("tsunami_probe_write: unit %d at 0x%016lx\n", source,
+           (unsigned long)vaddr);
+  }
+  if (probe_result)
+    *vaddr = true_contents;
+  return probe_result;
+}
+#else
+#define tsunami_probe_read(ADDR) 1
+#endif 
+
+static void __init
+tsunami_init_one_pchip(tsunami_pchip *pchip, int index)
+{
+  struct pci_controller *hose;
+
+  if (tsunami_probe_read(&pchip->pctl.csr) == 0)
+    return;
+
+  hose = alloc_pci_controller();
+  if (index == 0)
+    pci_isa_hose = hose;
+  hose->io_space = alloc_resource();
+  hose->mem_space = alloc_resource();
+
+  
+  hose->sparse_mem_base = 0;
+  hose->sparse_io_base = 0;
+  hose->dense_mem_base
+    = (TSUNAMI_MEM(index) & 0xffffffffffL) | 0x80000000000L;
+  hose->dense_io_base
+    = (TSUNAMI_IO(index) & 0xffffffffffL) | 0x80000000000L;
+
+  hose->config_space_base = TSUNAMI_CONF(index);
+  hose->index = index;
+
+  hose->io_space->start = TSUNAMI_IO(index) - TSUNAMI_IO_BIAS;
+  hose->io_space->end = hose->io_space->start + TSUNAMI_IO_SPACE - 1;
+  hose->io_space->name = pci_io_names[index];
+  hose->io_space->flags = IORESOURCE_IO;
+
+  hose->mem_space->start = TSUNAMI_MEM(index) - TSUNAMI_MEM_BIAS;
+  hose->mem_space->end = hose->mem_space->start + 0xffffffff;
+  hose->mem_space->name = pci_mem_names[index];
+  hose->mem_space->flags = IORESOURCE_MEM;
+
+  if (request_resource(&ioport_resource, hose->io_space) < 0)
+    printk(KERN_ERR "Failed to request IO on hose %d\n", index);
+  if (request_resource(&iomem_resource, hose->mem_space) < 0)
+    printk(KERN_ERR "Failed to request MEM on hose %d\n", index);
+
+  
+
+  saved_config[index].wsba[0] = pchip->wsba[0].csr;
+  saved_config[index].wsm[0] = pchip->wsm[0].csr;
+  saved_config[index].tba[0] = pchip->tba[0].csr;
+
+  saved_config[index].wsba[1] = pchip->wsba[1].csr;
+  saved_config[index].wsm[1] = pchip->wsm[1].csr;
+  saved_config[index].tba[1] = pchip->tba[1].csr;
+
+  saved_config[index].wsba[2] = pchip->wsba[2].csr;
+  saved_config[index].wsm[2] = pchip->wsm[2].csr;
+  saved_config[index].tba[2] = pchip->tba[2].csr;
+
+  saved_config[index].wsba[3] = pchip->wsba[3].csr;
+  saved_config[index].wsm[3] = pchip->wsm[3].csr;
+  saved_config[index].tba[3] = pchip->tba[3].csr;
+
+  
+  hose->sg_isa = iommu_arena_new(hose, 0x00800000, 0x00800000,
+               SMP_CACHE_BYTES);
+  
+        hose->sg_isa->align_entry = 4;
+
+  hose->sg_pci = iommu_arena_new(hose, 0x40000000,
+               size_for_memory(0x40000000),
+               SMP_CACHE_BYTES);
+        hose->sg_pci->align_entry = 4; 
+
+  __direct_map_base = 0x80000000;
+  __direct_map_size = 0x80000000;
+
+  pchip->wsba[0].csr = hose->sg_isa->dma_base | 3;
+  pchip->wsm[0].csr  = (hose->sg_isa->size - 1) & 0xfff00000;
+  pchip->tba[0].csr  = virt_to_phys(hose->sg_isa->ptes);
+
+  pchip->wsba[1].csr = hose->sg_pci->dma_base | 3;
+  pchip->wsm[1].csr  = (hose->sg_pci->size - 1) & 0xfff00000;
+  pchip->tba[1].csr  = virt_to_phys(hose->sg_pci->ptes);
+
+  pchip->wsba[2].csr = 0x80000000 | 1;
+  pchip->wsm[2].csr  = (0x80000000 - 1) & 0xfff00000;
+  pchip->tba[2].csr  = 0;
+
+  pchip->wsba[3].csr = 0;
+
+  
+  pchip->pctl.csr |= pctl_m_mwin;
+
+  tsunami_pci_tbi(hose, 0, -1);
+}
+
+
+void __iomem *
+tsunami_ioportmap(unsigned long addr)
+{
+  FIXUP_IOADDR_VGA(addr);
+  return (void __iomem *)(addr + TSUNAMI_IO_BIAS);
+}
+
+void __iomem *
+tsunami_ioremap(unsigned long addr, unsigned long size)
+{
+  FIXUP_MEMADDR_VGA(addr);
+  return (void __iomem *)(addr + TSUNAMI_MEM_BIAS);
+}
+
+#ifndef CONFIG_ALPHA_GENERIC
+EXPORT_SYMBOL(tsunami_ioportmap);
+EXPORT_SYMBOL(tsunami_ioremap);
+#endif
+
+void __init
+tsunami_init_arch(void)
+{
+#ifdef NXM_MACHINE_CHECKS_ON_TSUNAMI
+  unsigned long tmp;
+
+  
+  wrent(entInt, 0);
+
+  
+  tmp = (unsigned long)(TSUNAMI_cchip - 1);
+  printk("%s: probing bogus address:  0x%016lx\n", __func__, bogus_addr);
+  printk("\tprobe %s\n",
+         tsunami_probe_write((unsigned long *)bogus_addr)
+         ? "succeeded" : "failed");
+#endif 
+
+#if 0
+  printk("%s: CChip registers:\n", __func__);
+  printk("%s: CSR_CSC 0x%lx\n", __func__, TSUNAMI_cchip->csc.csr);
+  printk("%s: CSR_MTR 0x%lx\n", __func__, TSUNAMI_cchip.mtr.csr);
+  printk("%s: CSR_MISC 0x%lx\n", __func__, TSUNAMI_cchip->misc.csr);
+  printk("%s: CSR_DIM0 0x%lx\n", __func__, TSUNAMI_cchip->dim0.csr);
+  printk("%s: CSR_DIM1 0x%lx\n", __func__, TSUNAMI_cchip->dim1.csr);
+  printk("%s: CSR_DIR0 0x%lx\n", __func__, TSUNAMI_cchip->dir0.csr);
+  printk("%s: CSR_DIR1 0x%lx\n", __func__, TSUNAMI_cchip->dir1.csr);
+  printk("%s: CSR_DRIR 0x%lx\n", __func__, TSUNAMI_cchip->drir.csr);
+
+  printk("%s: DChip registers:\n");
+  printk("%s: CSR_DSC 0x%lx\n", __func__, TSUNAMI_dchip->dsc.csr);
+  printk("%s: CSR_STR 0x%lx\n", __func__, TSUNAMI_dchip->str.csr);
+  printk("%s: CSR_DREV 0x%lx\n", __func__, TSUNAMI_dchip->drev.csr);
+#endif
+  
+  ioport_resource.end = ~0UL;
+
+  
+
+  tsunami_init_one_pchip(TSUNAMI_pchip0, 0);
+  if (TSUNAMI_cchip->csc.csr & 1L<<14)
+    tsunami_init_one_pchip(TSUNAMI_pchip1, 1);
+
+  
+  find_console_vga_hose();
+}
+
+static void
+tsunami_kill_one_pchip(tsunami_pchip *pchip, int index)
+{
+  pchip->wsba[0].csr = saved_config[index].wsba[0];
+  pchip->wsm[0].csr = saved_config[index].wsm[0];
+  pchip->tba[0].csr = saved_config[index].tba[0];
+
+  pchip->wsba[1].csr = saved_config[index].wsba[1];
+  pchip->wsm[1].csr = saved_config[index].wsm[1];
+  pchip->tba[1].csr = saved_config[index].tba[1];
+
+  pchip->wsba[2].csr = saved_config[index].wsba[2];
+  pchip->wsm[2].csr = saved_config[index].wsm[2];
+  pchip->tba[2].csr = saved_config[index].tba[2];
+
+  pchip->wsba[3].csr = saved_config[index].wsba[3];
+  pchip->wsm[3].csr = saved_config[index].wsm[3];
+  pchip->tba[3].csr = saved_config[index].tba[3];
+}
+
+void
+tsunami_kill_arch(int mode)
+{
+  tsunami_kill_one_pchip(TSUNAMI_pchip0, 0);
+  if (TSUNAMI_cchip->csc.csr & 1L<<14)
+    tsunami_kill_one_pchip(TSUNAMI_pchip1, 1);
+}
+
+static inline void
+tsunami_pci_clr_err_1(tsunami_pchip *pchip)
+{
+  pchip->perror.csr;
+  pchip->perror.csr = 0x040;
+  mb();
+  pchip->perror.csr;
+}
+
+static inline void
+tsunami_pci_clr_err(void)
+{
+  tsunami_pci_clr_err_1(TSUNAMI_pchip0);
+
+  
+  if (TSUNAMI_cchip->csc.csr & 1L<<14)
+    tsunami_pci_clr_err_1(TSUNAMI_pchip1);
+}
+
+void
+tsunami_machine_check(unsigned long vector, unsigned long la_ptr)
+{
+  
+  mb();
+  mb();  
+  draina();
+  tsunami_pci_clr_err();
+  wrmces(0x7);
+  mb();
+
+  process_mcheck_info(vector, la_ptr, "TSUNAMI",
+          mcheck_expected(smp_processor_id()));
+}
+// SPDX-License-Identifier: GPL-2.0
+
+
+#define __EXTERN_INLINE inline
+#include <asm/io.h>
+#include <asm/core_wildfire.h>
+#undef __EXTERN_INLINE
+
+
+#define DEBUG_CONFIG 0
+#define DEBUG_DUMP_REGS 0
+#define DEBUG_DUMP_CONFIG 1
+
+#if DEBUG_CONFIG
+# define DBG_CFG(args)  printk args
+#else
+# define DBG_CFG(args)
+#endif
+
+#if DEBUG_DUMP_REGS
+static void wildfire_dump_pci_regs(int qbbno, int hoseno);
+static void wildfire_dump_pca_regs(int qbbno, int pcano);
+static void wildfire_dump_qsa_regs(int qbbno);
+static void wildfire_dump_qsd_regs(int qbbno);
+static void wildfire_dump_iop_regs(int qbbno);
+static void wildfire_dump_gp_regs(int qbbno);
+#endif
+#if DEBUG_DUMP_CONFIG
+static void wildfire_dump_hardware_config(void);
+#endif
+
+unsigned char wildfire_hard_qbb_map[WILDFIRE_MAX_QBB];
+unsigned char wildfire_soft_qbb_map[WILDFIRE_MAX_QBB];
+#define QBB_MAP_EMPTY  0xff
+
+unsigned long wildfire_hard_qbb_mask;
+unsigned long wildfire_soft_qbb_mask;
+unsigned long wildfire_gp_mask;
+unsigned long wildfire_hs_mask;
+unsigned long wildfire_iop_mask;
+unsigned long wildfire_ior_mask;
+unsigned long wildfire_pca_mask;
+unsigned long wildfire_cpu_mask;
+unsigned long wildfire_mem_mask;
+
+void __init
+wildfire_init_hose(int qbbno, int hoseno)
+{
+  struct pci_controller *hose;
+  wildfire_pci *pci;
+
+  hose = alloc_pci_controller();
+  hose->io_space = alloc_resource();
+  hose->mem_space = alloc_resource();
+
+        
+        hose->sparse_mem_base = 0;
+        hose->sparse_io_base  = 0;
+        hose->dense_mem_base  = WILDFIRE_MEM(qbbno, hoseno);
+        hose->dense_io_base   = WILDFIRE_IO(qbbno, hoseno);
+
+  hose->config_space_base = WILDFIRE_CONF(qbbno, hoseno);
+  hose->index = (qbbno << 3) + hoseno;
+
+  hose->io_space->start = WILDFIRE_IO(qbbno, hoseno) - WILDFIRE_IO_BIAS;
+  hose->io_space->end = hose->io_space->start + WILDFIRE_IO_SPACE - 1;
+  hose->io_space->name = pci_io_names[hoseno];
+  hose->io_space->flags = IORESOURCE_IO;
+
+  hose->mem_space->start = WILDFIRE_MEM(qbbno, hoseno)-WILDFIRE_MEM_BIAS;
+  hose->mem_space->end = hose->mem_space->start + 0xffffffff;
+  hose->mem_space->name = pci_mem_names[hoseno];
+  hose->mem_space->flags = IORESOURCE_MEM;
+
+  if (request_resource(&ioport_resource, hose->io_space) < 0)
+    printk(KERN_ERR "Failed to request IO on qbb %d hose %d\n",
+           qbbno, hoseno);
+  if (request_resource(&iomem_resource, hose->mem_space) < 0)
+    printk(KERN_ERR "Failed to request MEM on qbb %d hose %d\n",
+           qbbno, hoseno);
+
+#if DEBUG_DUMP_REGS
+  wildfire_dump_pci_regs(qbbno, hoseno);
+#endif
+
+        
+  hose->sg_isa = iommu_arena_new(hose, 0x00800000, 0x00800000,
+               SMP_CACHE_BYTES);
+  hose->sg_pci = iommu_arena_new(hose, 0xc0000000, 0x08000000,
+               SMP_CACHE_BYTES);
+
+  pci = WILDFIRE_pci(qbbno, hoseno);
+
+  pci->pci_window[0].wbase.csr = hose->sg_isa->dma_base | 3;
+  pci->pci_window[0].wmask.csr = (hose->sg_isa->size - 1) & 0xfff00000;
+  pci->pci_window[0].tbase.csr = virt_to_phys(hose->sg_isa->ptes);
+
+  pci->pci_window[1].wbase.csr = 0x40000000 | 1;
+  pci->pci_window[1].wmask.csr = (0x40000000 -1) & 0xfff00000;
+  pci->pci_window[1].tbase.csr = 0;
+
+  pci->pci_window[2].wbase.csr = 0x80000000 | 1;
+  pci->pci_window[2].wmask.csr = (0x40000000 -1) & 0xfff00000;
+  pci->pci_window[2].tbase.csr = 0x40000000;
+
+  pci->pci_window[3].wbase.csr = hose->sg_pci->dma_base | 3;
+  pci->pci_window[3].wmask.csr = (hose->sg_pci->size - 1) & 0xfff00000;
+  pci->pci_window[3].tbase.csr = virt_to_phys(hose->sg_pci->ptes);
+
+  wildfire_pci_tbi(hose, 0, 0); 
+}
+
+void __init
+wildfire_init_pca(int qbbno, int pcano)
+{
+
+  
+  if (!WILDFIRE_PCA_EXISTS(qbbno, pcano))
+      return;
+
+#if DEBUG_DUMP_REGS
+  wildfire_dump_pca_regs(qbbno, pcano);
+#endif
+
+  
+  wildfire_init_hose(qbbno, (pcano << 1) + 0);
+  wildfire_init_hose(qbbno, (pcano << 1) + 1);
+}
+
+void __init
+wildfire_init_qbb(int qbbno)
+{
+  int pcano;
+
+  
+  if (!WILDFIRE_QBB_EXISTS(qbbno))
+    return;
+
+#if DEBUG_DUMP_REGS
+  wildfire_dump_qsa_regs(qbbno);
+  wildfire_dump_qsd_regs(qbbno);
+  wildfire_dump_iop_regs(qbbno);
+  wildfire_dump_gp_regs(qbbno);
+#endif
+
+  
+  for (pcano = 0; pcano < WILDFIRE_PCA_PER_QBB; pcano++) {
+    wildfire_init_pca(qbbno, pcano);
+  }
+}
+
+void __init
+wildfire_hardware_probe(void)
+{
+  unsigned long temp;
+  unsigned int hard_qbb, soft_qbb;
+  wildfire_fast_qsd *fast = WILDFIRE_fast_qsd();
+  wildfire_qsd *qsd;
+  wildfire_qsa *qsa;
+  wildfire_iop *iop;
+  wildfire_gp *gp;
+  wildfire_ne *ne;
+  wildfire_fe *fe;
+  int i;
+
+  temp = fast->qsd_whami.csr;
+#if 0
+  printk(KERN_ERR "fast QSD_WHAMI at base %p is 0x%lx\n", fast, temp);
+#endif
+
+  hard_qbb = (temp >> 8) & 7;
+  soft_qbb = (temp >> 4) & 7;
+
+  
+  wildfire_hard_qbb_mask = (1 << hard_qbb);
+  wildfire_soft_qbb_mask = (1 << soft_qbb);
+
+  wildfire_gp_mask = 0;
+  wildfire_hs_mask = 0;
+  wildfire_iop_mask = 0;
+  wildfire_ior_mask = 0;
+  wildfire_pca_mask = 0;
+
+  wildfire_cpu_mask = 0;
+  wildfire_mem_mask = 0;
+
+  memset(wildfire_hard_qbb_map, QBB_MAP_EMPTY, WILDFIRE_MAX_QBB);
+  memset(wildfire_soft_qbb_map, QBB_MAP_EMPTY, WILDFIRE_MAX_QBB);
+
+  
+  qsa = WILDFIRE_qsa(soft_qbb);
+
+  temp = qsa->qsa_qbb_id.csr;
+#if 0
+  printk(KERN_ERR "QSA_QBB_ID at base %p is 0x%lx\n", qsa, temp);
+#endif
+
+  if (temp & 0x40) 
+    wildfire_hs_mask = 1;
+
+  if (temp & 0x20) { 
+    gp = WILDFIRE_gp(soft_qbb);
+    temp = 0;
+    for (i = 0; i < 4; i++) {
+      temp |= gp->gpa_qbb_map[i].csr << (i * 8);
+#if 0
+      printk(KERN_ERR "GPA_QBB_MAP[%d] at base %p is 0x%lx\n",
+             i, gp, temp);
+#endif
+    }
+
+    for (hard_qbb = 0; hard_qbb < WILDFIRE_MAX_QBB; hard_qbb++) {
+      if (temp & 8) { 
+        soft_qbb = temp & 7;
+        wildfire_hard_qbb_mask |= (1 << hard_qbb);
+        wildfire_soft_qbb_mask |= (1 << soft_qbb);
+      }
+      temp >>= 4;
+    }
+    wildfire_gp_mask = wildfire_soft_qbb_mask;
+        }
+
+  
+  for (soft_qbb = 0; soft_qbb < WILDFIRE_MAX_QBB; soft_qbb++) {
+      if (WILDFIRE_QBB_EXISTS(soft_qbb)) {
+          qsd = WILDFIRE_qsd(soft_qbb);
+    temp = qsd->qsd_whami.csr;
+#if 0
+  printk(KERN_ERR "QSD_WHAMI at base %p is 0x%lx\n", qsd, temp);
+#endif
+    hard_qbb = (temp >> 8) & 7;
+    wildfire_hard_qbb_map[hard_qbb] = soft_qbb;
+    wildfire_soft_qbb_map[soft_qbb] = hard_qbb;
+
+    qsa = WILDFIRE_qsa(soft_qbb);
+    temp = qsa->qsa_qbb_pop[0].csr;
+#if 0
+  printk(KERN_ERR "QSA_QBB_POP_0 at base %p is 0x%lx\n", qsa, temp);
+#endif
+    wildfire_cpu_mask |= ((temp >> 0) & 0xf) << (soft_qbb << 2);
+    wildfire_mem_mask |= ((temp >> 4) & 0xf) << (soft_qbb << 2);
+
+    temp = qsa->qsa_qbb_pop[1].csr;
+#if 0
+  printk(KERN_ERR "QSA_QBB_POP_1 at base %p is 0x%lx\n", qsa, temp);
+#endif
+    wildfire_iop_mask |= (1 << soft_qbb);
+    wildfire_ior_mask |= ((temp >> 4) & 0xf) << (soft_qbb << 2);
+
+    temp = qsa->qsa_qbb_id.csr;
+#if 0
+  printk(KERN_ERR "QSA_QBB_ID at %p is 0x%lx\n", qsa, temp);
+#endif
+    if (temp & 0x20)
+        wildfire_gp_mask |= (1 << soft_qbb);
+
+    
+    for (i = 0; i < WILDFIRE_PCA_PER_QBB; i++) {
+        iop = WILDFIRE_iop(soft_qbb);
+        ne = WILDFIRE_ne(soft_qbb, i);
+        fe = WILDFIRE_fe(soft_qbb, i);
+
+        if ((iop->iop_hose[i].init.csr & 1) == 1 &&
+      ((ne->ne_what_am_i.csr & 0xf00000300UL) == 0x100000300UL) &&
+      ((fe->fe_what_am_i.csr & 0xf00000300UL) == 0x100000200UL))
+        {
+            wildfire_pca_mask |= 1 << ((soft_qbb << 2) + i);
+        }
+    }
+
+      }
+  }
+#if DEBUG_DUMP_CONFIG
+  wildfire_dump_hardware_config();
+#endif
+}
